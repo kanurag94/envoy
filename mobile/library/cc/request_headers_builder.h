@@ -2,11 +2,10 @@
 
 #include <string>
 
-#include "headers_builder.h"
-#include "request_headers.h"
-#include "request_method.h"
+#include "library/cc/headers_builder.h"
+#include "library/cc/request_headers.h"
+#include "library/cc/request_method.h"
 #include "retry_policy.h"
-#include "upstream_http_protocol.h"
 
 namespace Envoy {
 namespace Platform {
@@ -21,7 +20,6 @@ public:
   RequestHeadersBuilder(RequestMethod request_method, absl::string_view url);
 
   RequestHeadersBuilder& addRetryPolicy(const RetryPolicy& retry_policy);
-  RequestHeadersBuilder& addUpstreamHttpProtocol(UpstreamHttpProtocol upstream_http_protocol);
 
   RequestHeaders build() const;
 

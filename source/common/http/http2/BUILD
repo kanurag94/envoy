@@ -59,6 +59,7 @@ envoy_cc_library(
         "//source/common/http:headers_lib",
         "//source/common/http:status_lib",
         "//source/common/http:utility_lib",
+        "//source/common/network:common_connection_filter_states_lib",
         "//source/common/runtime:runtime_features_lib",
         "@envoy_api//envoy/config/core/v3:pkg_cc_proto",
     ],
@@ -109,12 +110,14 @@ envoy_cc_library(
     hdrs = ["metadata_decoder.h"],
     external_deps = [
         "nghttp2",
+        "quiche_http2_hpack_decoder",
     ],
     deps = [
         "//envoy/http:codec_interface",
         "//source/common/buffer:buffer_lib",
         "//source/common/common:assert_lib",
         "//source/common/common:minimal_logger_lib",
+        "//source/common/runtime:runtime_features_lib",
     ],
 )
 

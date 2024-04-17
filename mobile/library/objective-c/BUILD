@@ -1,15 +1,21 @@
+load("@envoy//bazel:envoy_build_system.bzl", "envoy_mobile_package")
+load("//bazel:apple.bzl", "envoy_objc_library")
+
 licenses(["notice"])  # Apache 2
+
+envoy_mobile_package()
 
 exports_files([
     "EnvoyEngine.h",
 ])
 
-objc_library(
+envoy_objc_library(
     name = "envoy_engine_objc_lib",
     srcs = [
+        "EMODirectResponse.h",
         "EnvoyConfiguration.h",
-        "EnvoyConfiguration.m",
-        "EnvoyEngineImpl.m",
+        "EnvoyConfiguration.mm",
+        "EnvoyEngineImpl.mm",
         "EnvoyEventTracker.h",
         "EnvoyEventTracker.m",
         "EnvoyHTTPCallbacks.h",
@@ -21,13 +27,13 @@ objc_library(
         "EnvoyHTTPFilterFactory.h",
         "EnvoyHTTPFilterFactory.m",
         "EnvoyHTTPStream.h",
-        "EnvoyHTTPStreamImpl.m",
+        "EnvoyHTTPStreamImpl.mm",
         "EnvoyLogger.h",
         "EnvoyLogger.m",
         "EnvoyNativeFilterConfig.h",
         "EnvoyNativeFilterConfig.m",
         "EnvoyNetworkMonitor.h",
-        "EnvoyNetworkMonitor.m",
+        "EnvoyNetworkMonitor.mm",
         "EnvoyStringAccessor.h",
         "EnvoyStringAccessor.m",
     ],
@@ -50,13 +56,16 @@ objc_library(
         ":envoy_key_value_store_bridge_impl_lib",
         ":envoy_key_value_store_lib",
         ":envoy_objc_bridge_lib",
-        "//library/common:envoy_main_interface_lib",
+        "//library/cc:engine_builder_lib",
+        "//library/common:internal_engine_lib",
         "//library/common/api:c_types",
+        "//library/common/http:header_utility_lib",
         "//library/common/network:apple_platform_cert_verifier",
+        "//library/common/network:apple_proxy_resolution_lib",
     ],
 )
 
-objc_library(
+envoy_objc_library(
     name = "envoy_objc_bridge_lib",
     hdrs = ["EnvoyBridgeUtility.h"],
     visibility = ["//visibility:public"],
@@ -66,13 +75,13 @@ objc_library(
     ],
 )
 
-objc_library(
+envoy_objc_library(
     name = "envoy_aliases_lib",
     hdrs = ["EnvoyAliases.h"],
     visibility = ["//visibility:public"],
 )
 
-objc_library(
+envoy_objc_library(
     name = "envoy_key_value_store_bridge_impl_lib",
     srcs = ["EnvoyKeyValueStoreBridgeImpl.m"],
     hdrs = ["EnvoyKeyValueStoreBridgeImpl.h"],
@@ -83,7 +92,7 @@ objc_library(
     ],
 )
 
-objc_library(
+envoy_objc_library(
     name = "envoy_key_value_store_lib",
     hdrs = ["EnvoyKeyValueStore.h"],
     visibility = ["//visibility:public"],

@@ -7,6 +7,8 @@ import io.envoyproxy.envoymobile.engine.types.EnvoyLogger;
 import io.envoyproxy.envoymobile.engine.types.EnvoyNetworkType;
 import io.envoyproxy.envoymobile.engine.types.EnvoyOnEngineRunning;
 import io.envoyproxy.envoymobile.engine.types.EnvoyStringAccessor;
+import io.envoyproxy.envoymobile.engine.types.EnvoyStatus;
+import io.envoyproxy.envoymobile.utilities.ContextUtils;
 
 import java.util.Map;
 
@@ -21,6 +23,9 @@ public class AndroidEngineImpl implements EnvoyEngine {
                            EnvoyLogger logger, EnvoyEventTracker eventTracker,
                            Boolean enableProxying) {
     this.envoyEngine = new EnvoyEngineImpl(runningCallback, logger, eventTracker);
+    if (ContextUtils.getApplicationContext() == null) {
+      ContextUtils.initApplicationContext(context.getApplicationContext());
+    }
     AndroidJniLibrary.load(context);
     AndroidNetworkMonitor.load(context, envoyEngine);
     if (enableProxying) {
@@ -39,23 +44,18 @@ public class AndroidEngineImpl implements EnvoyEngine {
   }
 
   @Override
-  public int runWithYaml(String configurationYAML, String logLevel) {
+  public EnvoyStatus runWithYaml(String configurationYAML, String logLevel) {
     return envoyEngine.runWithYaml(configurationYAML, logLevel);
   }
 
   @Override
-  public int runWithConfig(EnvoyConfiguration envoyConfiguration, String logLevel) {
+  public EnvoyStatus runWithConfig(EnvoyConfiguration envoyConfiguration, String logLevel) {
     return envoyEngine.runWithConfig(envoyConfiguration, logLevel);
   }
 
   @Override
   public void terminate() {
     envoyEngine.terminate();
-  }
-
-  @Override
-  public void flushStats() {
-    envoyEngine.flushStats();
   }
 
   @Override
@@ -84,4 +84,6 @@ public class AndroidEngineImpl implements EnvoyEngine {
   }
 
   public void setProxySettings(String host, int port) { envoyEngine.setProxySettings(host, port); }
+
+  public void setLogLevel(LogLevel log_level) { envoyEngine.setLogLevel(log_level); }
 }

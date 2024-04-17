@@ -13,6 +13,7 @@
 #include "test/mocks/common.h"
 #include "test/mocks/router/mocks.h"
 #include "test/mocks/runtime/mocks.h"
+#include "test/mocks/server/server_factory_context.h"
 #include "test/mocks/stats/mocks.h"
 #include "test/mocks/upstream/cluster_info.h"
 #include "test/test_common/printers.h"
@@ -57,8 +58,8 @@ public:
   void setup(Http::RequestHeaderMap& request_headers) {
 
     state_ = RetryStateImpl::create(policy_, request_headers, cluster_, &virtual_cluster_,
-                                    route_stats_context_, runtime_, random_, dispatcher_,
-                                    test_time_.timeSystem(), Upstream::ResourcePriority::Default);
+                                    route_stats_context_, factory_context_, dispatcher_,
+                                    Upstream::ResourcePriority::Default);
   }
 
   void expectTimerCreateAndEnable() {
@@ -135,8 +136,7 @@ public:
     }
     const bool expect_disable_early_data = response_status == "425";
 
-    if (Runtime::runtimeFeatureEnabled(Runtime::conn_pool_new_stream_with_early_data_and_http3) &&
-        expect_disable_early_data) {
+    if (expect_disable_early_data) {
       expectSchedulableCallback();
     } else {
       expectTimerCreateAndEnable();
@@ -174,9 +174,11 @@ public:
   RouteStatNames stat_names_{stats_store_.symbolTable()};
   RouteStatsContextImpl route_stats_context_{*stats_store_.rootScope(), stat_names_,
                                              stat_name_.statName(), "fake_route"};
-  NiceMock<Runtime::MockLoader> runtime_;
-  NiceMock<Random::MockRandomGenerator> random_;
-  Event::MockDispatcher dispatcher_;
+
+  NiceMock<Server::Configuration::MockServerFactoryContext> factory_context_;
+  NiceMock<Runtime::MockLoader>& runtime_{factory_context_.runtime_loader_};
+  NiceMock<Random::MockRandomGenerator>& random_{factory_context_.api_.random_};
+  Event::MockDispatcher& dispatcher_{factory_context_.dispatcher_};
   Event::MockTimer* retry_timer_{};
   Event::MockSchedulableCallback* retry_schedulable_callback_{nullptr};
   RetryStatePtr state_;
@@ -192,7 +194,7 @@ public:
   const Http::StreamResetReason remote_refused_stream_reset_{
       Http::StreamResetReason::RemoteRefusedStreamReset};
   const Http::StreamResetReason overflow_reset_{Http::StreamResetReason::Overflow};
-  const Http::StreamResetReason connect_failure_{Http::StreamResetReason::ConnectionFailure};
+  const Http::StreamResetReason connect_failure_{Http::StreamResetReason::RemoteConnectionFailure};
 };
 
 TEST_F(RouterRetryStateImplTest, PolicyNoneRemoteReset) {
@@ -226,10 +228,6 @@ TEST_F(RouterRetryStateImplTest, PolicyRefusedStream) {
 }
 
 TEST_F(RouterRetryStateImplTest, PolicyAltProtocolPostHandshakeFailure) {
-  if (!Runtime::runtimeFeatureEnabled(Runtime::conn_pool_new_stream_with_early_data_and_http3)) {
-    return;
-  }
-
   Http::TestRequestHeaderMapImpl request_headers{
       {"x-envoy-retry-on", "refused-stream,http3-post-connect-failure"}};
   setup(request_headers);
@@ -262,10 +260,6 @@ TEST_F(RouterRetryStateImplTest, PolicyAltProtocolPostHandshakeFailure) {
 }
 
 TEST_F(RouterRetryStateImplTest, PolicyAltProtocolPostHandshakeFailureWithoutTcpFallback) {
-  if (!Runtime::runtimeFeatureEnabled(Runtime::conn_pool_new_stream_with_early_data_and_http3)) {
-    return;
-  }
-
   Http::TestRequestHeaderMapImpl request_headers{
       {"x-envoy-retry-on", "http3-post-connect-failure"}};
   setup(request_headers);
@@ -506,9 +500,6 @@ TEST_F(RouterRetryStateImplTest, RetriableStatusCodes) {
 }
 
 TEST_F(RouterRetryStateImplTest, Http3AutoConfigRetryOnTooEarlyRetriableStatusCode) {
-  if (!Runtime::runtimeFeatureEnabled(Runtime::conn_pool_new_stream_with_early_data_and_http3)) {
-    return;
-  }
   // Retry upon 425 should be automatically configured for H3 upstream.
   EXPECT_CALL(cluster_, features()).WillRepeatedly(Return(Upstream::ClusterInfo::Features::HTTP3));
   Http::TestRequestHeaderMapImpl request;
@@ -517,9 +508,6 @@ TEST_F(RouterRetryStateImplTest, Http3AutoConfigRetryOnTooEarlyRetriableStatusCo
 }
 
 TEST_F(RouterRetryStateImplTest, NoRetryUponTooEarlyStatusCodeWithDownstreamEarlyData) {
-  if (!Runtime::runtimeFeatureEnabled(Runtime::conn_pool_new_stream_with_early_data_and_http3)) {
-    return;
-  }
   EXPECT_CALL(cluster_, features()).WillRepeatedly(Return(Upstream::ClusterInfo::Features::HTTP3));
   // A request with "EarlyData" header won't be retried upon 425.
   Http::TestRequestHeaderMapImpl request_headers{{"early-data", "1"}};
@@ -595,6 +583,17 @@ TEST_F(RouterRetryStateImplTest, RetriableStatusCodesHeader) {
     EXPECT_EQ(RetryStatus::No,
               state_->shouldRetryHeaders(response_headers, request_headers, header_callback_));
   }
+  // Validate that retriable-status-codes does not work for gRPC.
+  {
+    Http::TestRequestHeaderMapImpl request_headers{{"x-envoy-retry-on", "retriable-status-codes"},
+                                                   {"x-envoy-retriable-status-codes", "499"}};
+    setup(request_headers);
+    EXPECT_TRUE(state_->enabled());
+
+    Http::TestResponseHeaderMapImpl response_headers{{":status", "200"}, {"grpc-status", "1"}};
+    EXPECT_EQ(RetryStatus::No,
+              state_->shouldRetryHeaders(response_headers, request_headers, header_callback_));
+  }
 }
 
 // Test that when 'retriable-headers' policy is set via request header, certain configured headers
@@ -606,7 +605,8 @@ TEST_F(RouterRetryStateImplTest, RetriableHeadersPolicySetViaRequestHeader) {
   auto* matcher = matchers.Add();
   matcher->set_name("X-Upstream-Pushback");
 
-  policy_.retriable_headers_ = Http::HeaderUtility::buildHeaderMatcherVector(matchers);
+  policy_.retriable_headers_ =
+      Http::HeaderUtility::buildHeaderMatcherVector(matchers, factory_context_);
 
   // No retries based on response headers: retry mode isn't enabled.
   {
@@ -657,7 +657,8 @@ TEST_F(RouterRetryStateImplTest, RetriableHeadersPolicyViaRetryPolicyConfigurati
   matcher4->mutable_range_match()->set_start(500);
   matcher4->mutable_range_match()->set_end(505);
 
-  policy_.retriable_headers_ = Http::HeaderUtility::buildHeaderMatcherVector(matchers);
+  policy_.retriable_headers_ =
+      Http::HeaderUtility::buildHeaderMatcherVector(matchers, factory_context_);
 
   auto should_retry_with_response = [this](const Http::TestResponseHeaderMapImpl& response_headers,
                                            RetryStatus should_retry) {
@@ -786,7 +787,8 @@ TEST_F(RouterRetryStateImplTest, RetriableHeadersMergedConfigAndRequestHeaders) 
   matcher->mutable_string_match()->set_exact("200");
   matcher->set_invert_match(true);
 
-  policy_.retriable_headers_ = Http::HeaderUtility::buildHeaderMatcherVector(matchers);
+  policy_.retriable_headers_ =
+      Http::HeaderUtility::buildHeaderMatcherVector(matchers, factory_context_);
 
   // No retries according to config.
   {
@@ -846,7 +848,8 @@ TEST_F(RouterRetryStateImplTest, PolicyLimitedByRequestHeaders) {
   matcher2->set_name(":method");
   matcher2->mutable_string_match()->set_exact("HEAD");
 
-  policy_.retriable_request_headers_ = Http::HeaderUtility::buildHeaderMatcherVector(matchers);
+  policy_.retriable_request_headers_ =
+      Http::HeaderUtility::buildHeaderMatcherVector(matchers, factory_context_);
 
   {
     Http::TestRequestHeaderMapImpl request_headers{{"x-envoy-retry-on", "5xx"}};
@@ -1040,11 +1043,9 @@ TEST_F(RouterRetryStateImplTest, Backoff) {
   expectSchedulableCallback();
   EXPECT_EQ(RetryStatus::Yes, state_->shouldRetryReset(connect_failure_, RetryState::Http3Used::Yes,
                                                        reset_callback_));
-  if (Runtime::runtimeFeatureEnabled(Runtime::conn_pool_new_stream_with_early_data_and_http3)) {
-    EXPECT_CALL(callback_ready_, ready());
-    retry_schedulable_callback_->invokeCallback();
-    EXPECT_FALSE(retry_disable_http3_);
-  }
+  EXPECT_CALL(callback_ready_, ready());
+  retry_schedulable_callback_->invokeCallback();
+  EXPECT_FALSE(retry_disable_http3_);
 
   // Connect failure over HTTP/3 should be retried only with timed backoff if the cluster is
   // configured with explicit h3 pool.

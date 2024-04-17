@@ -34,6 +34,7 @@ envoy_cc_test(
         "//source/common/buffer:buffer_lib",
         "//test/mocks/server:factory_context_mocks",
         "//test/test_common:registry_lib",
+        "//test/test_common:test_runtime_lib",
         "//test/test_common:utility_lib",
     ],
 )
@@ -68,9 +69,11 @@ envoy_cc_test(
         "//contrib/generic_proxy/filters/network/test/mocks:filter_mocks",
         "//contrib/generic_proxy/filters/network/test/mocks:route_mocks",
         "//source/common/buffer:buffer_lib",
+        "//source/extensions/tracers/zipkin:config",
         "//test/mocks/network:network_mocks",
         "//test/mocks/server:factory_context_mocks",
         "//test/test_common:registry_lib",
+        "//test/test_common:test_runtime_lib",
         "//test/test_common:utility_lib",
         "@envoy_api//contrib/envoy/extensions/filters/network/generic_proxy/v3:pkg_cc_proto",
         "@envoy_api//envoy/admin/v3:pkg_cc_proto",
@@ -81,6 +84,9 @@ envoy_cc_test(
     name = "integration_test",
     srcs = [
         "integration_test.cc",
+    ],
+    tags = [
+        "cpu:3",
     ],
     deps = [
         ":fake_codec_lib",
@@ -113,5 +119,17 @@ envoy_cc_test(
         ":fake_codec_lib",
         "//contrib/generic_proxy/filters/network/source:match_lib",
         "//test/mocks/server:factory_context_mocks",
+    ],
+)
+
+envoy_cc_test(
+    name = "access_log_test",
+    srcs = [
+        "access_log_test.cc",
+    ],
+    deps = [
+        ":fake_codec_lib",
+        "//contrib/generic_proxy/filters/network/source:access_log_lib",
+        "//test/mocks/stream_info:stream_info_mocks",
     ],
 )

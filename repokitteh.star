@@ -50,10 +50,14 @@ use(
     },
   ],
 )
-
-alias('retest', 'retry-azp')
+use("github.com/envoyproxy/envoy/ci/repokitteh/modules/versionchange.star")
 
 def _backport():
   github.issue_label('backport/review')
 
 handlers.command(name='backport', func=_backport)
+
+def _milestone():
+  github.issue_label('milestone/review')
+
+handlers.command(name='milestone', func=_milestone)

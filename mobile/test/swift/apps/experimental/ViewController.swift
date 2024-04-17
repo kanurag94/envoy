@@ -18,11 +18,13 @@ final class ViewController: UITableViewController {
     super.viewDidLoad()
 
     let engine = EngineBuilder()
-      .addLogLevel(.debug)
+      .setLogLevel(.debug)
+      .setLogger { _, msg in
+        print(msg, terminator: "")
+      }
       .addPlatformFilter(DemoFilter.init)
       .addPlatformFilter(BufferDemoFilter.init)
       .addPlatformFilter(AsyncDemoFilter.init)
-      .enableAdminInterface()
       .enableDNSCache(true)
       // required by DNS cache
       .addKeyValueStore(name: "reserved.platform_store", keyValueStore: UserDefaults.standard)
@@ -30,12 +32,8 @@ final class ViewController: UITableViewController {
       .enablePlatformCertificateValidation(true)
       .addNativeFilter(
         name: "envoy.filters.http.buffer",
-        typedConfig: """
-            {\
-            "@type":"type.googleapis.com/envoy.extensions.filters.http.buffer.v3.Buffer",\
-            "max_request_bytes":5242880\
-            }
-            """
+        // swiftlint:disable:next line_length
+        typedConfig: "[type.googleapis.com/envoy.extensions.filters.http.buffer.v3.Buffer] { max_request_bytes: { value: 5242880 } }"
       )
       .setOnEngineRunning { NSLog("Envoy async internal setup completed") }
       .addStringAccessor(name: "demo-accessor", accessor: { return "PlatformString" })
@@ -71,12 +69,8 @@ final class ViewController: UITableViewController {
 
     NSLog("starting request to '\(kRequestPath)'")
 
-    // Note: this request will use an h2 stream for the upstream request.
-    // The Objective-C example uses http/1.1. This is done on purpose to test both paths in
-    // end-to-end tests in CI.
     let headers = RequestHeadersBuilder(method: .get, scheme: kRequestScheme,
                                         authority: kRequestAuthority, path: kRequestPath)
-      .addUpstreamHttpProtocol(.http2)
       .build()
 
     streamClient

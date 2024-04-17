@@ -62,7 +62,7 @@ AccessLog::AccessLog(
     : Common::ImplBase(std::move(filter)), tls_slot_(tls.allocateSlot()),
       access_logger_cache_(std::move(access_logger_cache)) {
 
-  Envoy::Config::Utility::checkTransportVersion(config.common_config());
+  THROW_IF_NOT_OK(Envoy::Config::Utility::checkTransportVersion(config.common_config()));
   tls_slot_->set([this, config](Event::Dispatcher&) {
     return std::make_shared<ThreadLocalLogger>(
         access_logger_cache_->getOrCreateLogger(config, Common::GrpcAccessLoggerType::HTTP));
@@ -76,9 +76,7 @@ AccessLog::AccessLog(
   attributes_formatter_ = std::make_unique<OpenTelemetryFormatter>(config.attributes());
 }
 
-void AccessLog::emitLog(const Http::RequestHeaderMap& request_headers,
-                        const Http::ResponseHeaderMap& response_headers,
-                        const Http::ResponseTrailerMap& response_trailers,
+void AccessLog::emitLog(const Formatter::HttpFormatterContext& log_context,
                         const StreamInfo::StreamInfo& stream_info) {
   opentelemetry::proto::logs::v1::LogRecord log_entry;
   log_entry.set_time_unix_nano(std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -87,13 +85,23 @@ void AccessLog::emitLog(const Http::RequestHeaderMap& request_headers,
 
   // Unpacking the body "KeyValueList" to "AnyValue".
   if (body_formatter_) {
-    const auto formatted_body = unpackBody(body_formatter_->format(
-        request_headers, response_headers, response_trailers, stream_info, absl::string_view()));
+    const auto formatted_body = unpackBody(body_formatter_->format(log_context, stream_info));
     *log_entry.mutable_body() = formatted_body;
   }
-  const auto formatted_attributes = attributes_formatter_->format(
-      request_headers, response_headers, response_trailers, stream_info, absl::string_view());
+  const auto formatted_attributes = attributes_formatter_->format(log_context, stream_info);
   *log_entry.mutable_attributes() = formatted_attributes.values();
+
+  // Setting the trace id if available.
+  // OpenTelemetry trace id is a [16]byte array, backend(e.g. OTel-collector) will reject the
+  // request if the length is not 16. Some trace provider(e.g. zipkin) may return it as a 64-bit hex
+  // string. In this case, we need to convert it to a 128-bit hex string, padding left with zeros.
+  std::string trace_id_hex = log_context.activeSpan().getTraceIdAsHex();
+  if (trace_id_hex.size() == 32) {
+    *log_entry.mutable_trace_id() = absl::HexStringToBytes(trace_id_hex);
+  } else if (trace_id_hex.size() == 16) {
+    auto trace_id = absl::StrCat(Hex::uint64ToHex(0), trace_id_hex);
+    *log_entry.mutable_trace_id() = absl::HexStringToBytes(trace_id);
+  }
 
   tls_slot_->getTyped<ThreadLocalLogger>().logger_->log(std::move(log_entry));
 }

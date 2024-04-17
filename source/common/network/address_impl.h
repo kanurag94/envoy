@@ -11,11 +11,15 @@
 #include "envoy/network/socket.h"
 
 #include "source/common/common/assert.h"
+#include "source/common/common/cleanup.h"
 #include "source/common/common/statusor.h"
 
 namespace Envoy {
 namespace Network {
 namespace Address {
+
+// Add an address-specific version for easier searching.
+#define TRY_NEEDS_AUDIT_ADDRESS TRY_NEEDS_AUDIT
 
 /**
  * Check whether we are a) on Android or an Apple platform and b) configured via runtime to always
@@ -144,6 +148,12 @@ public:
   // given address if not.
   static absl::Status validateProtocolSupported();
 
+  /**
+   * For use in tests only.
+   * Force validateProtocolSupported() to return false for IPv4.
+   */
+  static Envoy::Cleanup forceProtocolUnsupportedForTest(bool new_val);
+
 private:
   /**
    * Construct from an existing unix IPv4 socket address (IP v4 address and port).
@@ -226,6 +236,12 @@ public:
   // Validate that IPv6 is supported on this platform
   static absl::Status validateProtocolSupported();
 
+  /**
+   * For use in tests only.
+   * Force validateProtocolSupported() to return false for IPv6.
+   */
+  static Envoy::Cleanup forceProtocolUnsupportedForTest(bool new_val);
+
 private:
   /**
    * Construct from an existing unix IPv6 socket address (IP v6 address and port).
@@ -243,6 +259,7 @@ private:
     uint32_t scopeId() const override;
     uint32_t port() const;
     InstanceConstSharedPtr v4CompatibleAddress() const override;
+    InstanceConstSharedPtr addressWithoutScopeId() const override;
 
     std::string makeFriendlyAddress() const;
 

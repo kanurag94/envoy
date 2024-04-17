@@ -38,7 +38,7 @@ public:
   void setTag(absl::string_view name, const absl::string_view) override;
   void log(SystemTime timestamp, const std::string& event) override;
   void injectContext(Tracing::TraceContext& trace_context,
-                     const Upstream::HostDescriptionConstSharedPtr&) override;
+                     const Tracing::UpstreamContext&) override;
   Tracing::SpanPtr spawnChild(const Tracing::Config& config, const std::string& name,
                               SystemTime start_time) override;
   void setSampled(bool) override;
@@ -64,10 +64,11 @@ class OpenTracingDriver : public Tracing::Driver, protected Logger::Loggable<Log
 public:
   explicit OpenTracingDriver(Stats::Scope& scope);
 
-  // Tracer::TracingDriver
+  // Tracing::Driver
   Tracing::SpanPtr startSpan(const Tracing::Config& config, Tracing::TraceContext& trace_context,
-                             const std::string& operation_name, SystemTime start_time,
-                             const Tracing::Decision tracing_decision) override;
+                             const StreamInfo::StreamInfo& stream_info,
+                             const std::string& operation_name,
+                             Tracing::Decision tracing_decision) override;
 
   virtual opentracing::Tracer& tracer() PURE;
 

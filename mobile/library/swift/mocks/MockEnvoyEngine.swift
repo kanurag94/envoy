@@ -3,14 +3,15 @@ import Foundation
 
 /// Mock implementation of `EnvoyEngine`. Used internally for testing the bridging layer & mocking.
 final class MockEnvoyEngine: NSObject {
-  init(runningCallback onEngineRunning: (() -> Void)? = nil, logger: ((String) -> Void)? = nil,
+  init(runningCallback onEngineRunning: (() -> Void)? = nil,
+       logger: ((Int, String) -> Void)? = nil,
        eventTracker: (([String: String]) -> Void)? = nil, networkMonitoringMode: Int32 = 0) {}
 
   /// Closure called when `run(withConfig:)` is called.
   static var onRunWithConfig: ((_ config: EnvoyConfiguration, _ logLevel: String?) -> Void)?
   /// Closure called when `run(withConfigYAML:)` is called.
-  static var onRunWithTemplate: ((
-    _ template: String,
+  static var onRunWithYAML: ((
+    _ yaml: String,
     _ config: EnvoyConfiguration,
     _ logLevel: String?
   ) -> Void)?
@@ -18,7 +19,6 @@ final class MockEnvoyEngine: NSObject {
   /// Closure called when `recordCounterInc(_:tags:count:)` is called.
   static var onRecordCounter: (
     (_ elements: String, _ tags: [String: String], _ count: UInt) -> Void)?
-  static var onFlushStats: (() -> Void)?
 }
 
 extension MockEnvoyEngine: EnvoyEngine {
@@ -27,8 +27,8 @@ extension MockEnvoyEngine: EnvoyEngine {
     return kEnvoySuccess
   }
 
-  func run(withTemplate template: String, config: EnvoyConfiguration, logLevel: String) -> Int32 {
-    MockEnvoyEngine.onRunWithTemplate?(template, config, logLevel)
+  func run(withYAML yaml: String, config: EnvoyConfiguration, logLevel: String) -> Int32 {
+    MockEnvoyEngine.onRunWithYAML?(yaml, config, logLevel)
     return kEnvoySuccess
   }
 
@@ -43,10 +43,6 @@ extension MockEnvoyEngine: EnvoyEngine {
   func recordCounterInc(_ elements: String, tags: [String: String], count: UInt) -> Int32 {
     MockEnvoyEngine.onRecordCounter?(elements, tags, count)
     return kEnvoySuccess
-  }
-
-  func flushStats() {
-    MockEnvoyEngine.onFlushStats?()
   }
 
   func dumpStats() -> String {

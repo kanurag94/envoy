@@ -1,10 +1,12 @@
 #include "contrib/golang/filters/http/source/config.h"
 
+#include <string>
+
 #include "envoy/registry/registry.h"
 
 #include "source/common/common/fmt.h"
 
-#include "contrib/golang/filters/http/source/common/dso/dso.h"
+#include "contrib/golang/common/dso/dso.h"
 #include "contrib/golang/filters/http/source/golang_filter.h"
 
 namespace Envoy {
@@ -14,25 +16,33 @@ namespace Golang {
 
 Http::FilterFactoryCb GolangFilterConfig::createFilterFactoryFromProtoTyped(
     const envoy::extensions::filters::http::golang::v3alpha::Config& proto_config,
-    const std::string&, Server::Configuration::FactoryContext&) {
+    const std::string& stats_prefix, Server::Configuration::FactoryContext& context) {
 
-  FilterConfigSharedPtr config = std::make_shared<FilterConfig>(proto_config);
-
-  ENVOY_LOG_MISC(debug, "load golang library at parse config: {} {}", config->soId(),
-                 config->soPath());
+  ENVOY_LOG_MISC(debug, "load golang library at parse config: {} {}", proto_config.library_id(),
+                 proto_config.library_path());
 
   // loads DSO store a static map and a open handles leak will occur when the filter gets loaded and
   // unloaded.
   // TODO: unload DSO when filter updated.
-  auto res = Envoy::Dso::DsoInstanceManager::load(config->soId(), config->soPath());
-  if (!res) {
-    throw EnvoyException(
-        fmt::format("golang_filter: load library failed: {} {}", config->soId(), config->soPath()));
+  auto dso_lib = Dso::DsoManager<Dso::HttpFilterDsoImpl>::load(
+      proto_config.library_id(), proto_config.library_path(), proto_config.plugin_name());
+  if (dso_lib == nullptr) {
+    throw EnvoyException(fmt::format("golang_filter: load library failed: {} {}",
+                                     proto_config.library_id(), proto_config.library_path()));
   }
 
-  return [config](Http::FilterChainFactoryCallbacks& callbacks) {
-    auto filter = std::make_shared<Filter>(
-        config, Dso::DsoInstanceManager::getDsoInstanceByID(config->soId()));
+  FilterConfigSharedPtr config = std::make_shared<FilterConfig>(
+      proto_config, dso_lib, fmt::format("{}golang.", stats_prefix), context);
+  config->newGoPluginConfig();
+  return [config, dso_lib](Http::FilterChainFactoryCallbacks& callbacks) {
+    const std::string& worker_name = callbacks.dispatcher().name();
+    auto pos = worker_name.find_first_of('_');
+    ENVOY_BUG(pos != std::string::npos, "worker name is not in expected format worker_{id}");
+    uint32_t worker_id;
+    if (!absl::SimpleAtoi(worker_name.substr(pos + 1), &worker_id)) {
+      IS_ENVOY_BUG("failed to parse worker id from name");
+    }
+    auto filter = std::make_shared<Filter>(config, dso_lib, worker_id);
     callbacks.addStreamFilter(filter);
     callbacks.addAccessLogHandler(filter);
   };
@@ -46,10 +56,9 @@ GolangFilterConfig::createRouteSpecificFilterConfigTyped(
 }
 
 /**
- * Static registration for the golang extensions filter. @see RegisterFactory.
+ * Static registration for the Golang filter. @see RegisterFactory.
  */
-LEGACY_REGISTER_FACTORY(GolangFilterConfig, Server::Configuration::NamedHttpFilterConfigFactory,
-                        "envoy.golang");
+REGISTER_FACTORY(GolangFilterConfig, Server::Configuration::NamedHttpFilterConfigFactory);
 
 } // namespace Golang
 } // namespace HttpFilters

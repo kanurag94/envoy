@@ -22,6 +22,17 @@
 namespace Envoy {
 
 /**
+ * Converts a `timespec` structure to a `std::chrono::time_point` aka. `Envoy::SystemTime`.
+ * @param t the `timespec`
+ * @return Envoy::SystemTime the same time, represented as a `std::chrono::time_point`,
+ *         to microsecond accuracy. (`SystemTime` does not accept nanosecond accuracy.)
+ */
+constexpr SystemTime timespecToChrono(const struct timespec& t) {
+  return SystemTime{} + std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::seconds{t.tv_sec} + std::chrono::nanoseconds{t.tv_nsec});
+}
+
+/**
  * Retrieve string description of error code
  * @param int error code
  * @return const std::string error detail description
@@ -46,7 +57,7 @@ public:
    * @param time_source time keeping source.
    * @return std::string representing the GMT/UTC time of a TimeSource based on the format string.
    */
-  std::string now(TimeSource& time_source);
+  std::string now(TimeSource& time_source) const;
 
   /**
    * @return std::string the format string used.
@@ -680,23 +691,20 @@ template <class Value> struct TrieLookupTable {
    * @param key the key used to find.
    * @return the value matching the longest prefix based on the key.
    */
-  Value findLongestPrefix(const char* key) const {
+  Value findLongestPrefix(absl::string_view key) const {
     const TrieEntry<Value>* current = &root_;
-    const TrieEntry<Value>* result = nullptr;
-    while (uint8_t c = *key) {
-      if (current->value_) {
-        result = current;
-      }
+    const TrieEntry<Value>* result = current;
 
-      // https://github.com/facebook/mcrouter/blob/master/mcrouter/lib/fbi/cpp/Trie-inl.h#L126-L143
+    for (uint8_t c : key) {
       current = current->entries_[c].get();
+
       if (current == nullptr) {
         return result ? result->value_ : nullptr;
+      } else if (current->value_) {
+        result = current;
       }
-
-      key++;
     }
-    return current ? current->value_ : result->value_;
+    return result ? result->value_ : nullptr;
   }
 
   TrieEntry<Value> root_;
@@ -792,7 +800,7 @@ public:
   /**
    * @return a std::string copy of the InlineString.
    */
-  std::string toString() const { return std::string(data_, size_); }
+  std::string toString() const { return {data_, size_}; }
 
   /**
    * @return a string_view into the InlineString.
@@ -817,7 +825,7 @@ public:
                             absl::flat_hash_set<T>& result_set) {
     std::copy_if(original_set.begin(), original_set.end(),
                  std::inserter(result_set, result_set.begin()),
-                 [&remove_set](const T& v) -> bool { return remove_set.count(v) == 0; });
+                 [&remove_set](const T& v) -> bool { return !remove_set.contains(v); });
   }
 };
 

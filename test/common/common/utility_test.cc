@@ -29,6 +29,19 @@ using testing::Not;
 
 namespace Envoy {
 
+TEST(TimeSpecToChrono, convertsCorrectly) {
+  struct timespec t;
+  t.tv_nsec = 456789;
+  t.tv_sec = 1673368198;
+  auto expected =
+      SystemTime{} + std::chrono::seconds{t.tv_sec} + std::chrono::microseconds{t.tv_nsec / 1000};
+  EXPECT_EQ(expected, timespecToChrono(t));
+  t.tv_sec++;
+  EXPECT_NE(expected, timespecToChrono(t));
+  expected += std::chrono::seconds{1};
+  EXPECT_EQ(expected, timespecToChrono(t));
+}
+
 TEST(IntUtil, roundUpToMultiple) {
   // Round up to non-power-of-2
   EXPECT_EQ(3, IntUtil::roundUpToMultiple(1, 3));
@@ -1069,14 +1082,19 @@ TEST(TrieLookupTable, LongestPrefix) {
   const char* cstr_a = "a";
   const char* cstr_b = "b";
   const char* cstr_c = "c";
+  const char* cstr_d = "d";
 
   EXPECT_TRUE(trie.add("foo", cstr_a));
   EXPECT_TRUE(trie.add("bar", cstr_b));
   EXPECT_TRUE(trie.add("baro", cstr_c));
+  EXPECT_TRUE(trie.add("foo/bar", cstr_d));
 
   EXPECT_EQ(cstr_a, trie.find("foo"));
   EXPECT_EQ(cstr_a, trie.findLongestPrefix("foo"));
   EXPECT_EQ(cstr_a, trie.findLongestPrefix("foosball"));
+  EXPECT_EQ(cstr_a, trie.findLongestPrefix("foo/"));
+  EXPECT_EQ(cstr_d, trie.findLongestPrefix("foo/bar"));
+  EXPECT_EQ(cstr_d, trie.findLongestPrefix("foo/bar/zzz"));
 
   EXPECT_EQ(cstr_b, trie.find("bar"));
   EXPECT_EQ(cstr_b, trie.findLongestPrefix("bar"));

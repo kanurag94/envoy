@@ -1,7 +1,7 @@
 package org.chromium.net.testing;
 
 import static io.envoyproxy.envoymobile.engine.EnvoyConfiguration.TrustChainVerification.ACCEPT_UNTRUSTED;
-import static org.assertj.core.api.Assertions.assertThat;
+import static com.google.common.truth.Truth.assertThat;
 import static org.chromium.net.testing.CronetTestRule.SERVER_CERT_PEM;
 import static org.chromium.net.testing.CronetTestRule.SERVER_KEY_PKCS8_PEM;
 
@@ -15,7 +15,6 @@ import io.envoyproxy.envoymobile.RequestHeaders;
 import io.envoyproxy.envoymobile.RequestHeadersBuilder;
 import io.envoyproxy.envoymobile.RequestMethod;
 import io.envoyproxy.envoymobile.Stream;
-import io.envoyproxy.envoymobile.UpstreamHttpProtocol;
 import io.envoyproxy.envoymobile.engine.AndroidJniLibrary;
 import java.net.URL;
 import java.nio.ByteBuffer;
@@ -44,7 +43,11 @@ public class AndroidEnvoyExplicitH2FlowTest {
     Context appContext = ApplicationProvider.getApplicationContext();
     engine = new AndroidEngineBuilder(appContext)
                  .setTrustChainVerification(ACCEPT_UNTRUSTED)
-                 .addLogLevel(LogLevel.DEBUG)
+                 .setLogLevel(LogLevel.DEBUG)
+                 .setLogger((level, message) -> {
+                   System.out.print(message);
+                   return null;
+                 })
                  .setOnEngineRunning(() -> {
                    latch.countDown();
                    return null;
@@ -65,8 +68,7 @@ public class AndroidEnvoyExplicitH2FlowTest {
     URL url = new URL(Http2TestServer.getEchoAllHeadersUrl());
     RequestHeadersBuilder requestHeadersBuilder = new RequestHeadersBuilder(
         RequestMethod.POST, url.getProtocol(), url.getAuthority(), url.getPath());
-    RequestHeaders requestHeaders =
-        requestHeadersBuilder.addUpstreamHttpProtocol(UpstreamHttpProtocol.HTTP2).build();
+    RequestHeaders requestHeaders = requestHeadersBuilder.build();
 
     final CountDownLatch latch = new CountDownLatch(1);
     final AtomicReference<Stream> stream = new AtomicReference<>();
