@@ -821,6 +821,20 @@ REPOSITORY_LOCATIONS_SPEC = dict(
         license = "MIT",
         license_url = "https://github.com/nlohmann/json/blob/v{version}/LICENSE.MIT",
     ),
+    com_github_pboettch_json_schema_validator = dict(
+        project_name = "JSON schema validator",
+        project_desc = "JSON schema validator for C++",
+        project_url = "https://github.com/pboettch/json-schema-validator.git",
+        sha256 = "2c00b50023c7d557cdaa71c0777f5bcff996c4efd7a539e58beaa4219fa2a5e1",
+        version = "2.3.0",
+        strip_prefix = "json-schema-validator-{version}",
+        urls = ["https://github.com/pboettch/json-schema-validator/archive/{version}.tar.gz"],
+        use_category = ["dataplane_ext"],
+        release_date = "2023-11-27",
+        cpe = "N/A",
+        license = "MIT",
+        license_url = "https://github.com/pboettch/json-schema-validator/blob/{version}/LICENSE",
+    ),
     # This is an external dependency needed while running the
     # envoy docker image. A bazel target has been created since
     # there is no binary package available for the utility on Ubuntu
