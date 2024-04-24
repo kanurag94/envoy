@@ -11,6 +11,7 @@
 
 //#include "contrib/dynamo/filters/http/source/dynamo_request_parser.h"
 //#include "contrib/dynamo/filters/http/source/dynamo_stats.h"
+#include "contrib/payload_validator/filters/http/source/config.h"
 
 namespace Envoy {
 namespace Extensions {
@@ -30,7 +31,7 @@ public:
  */
 class Filter : public Http::StreamFilter {
 public:
-  Filter(const std::shared_ptr<PayloadValidatorStats>&) {}
+  Filter(FilterConfig& config, const std::shared_ptr<PayloadValidatorStats>&) : config_(config) {}
   // Http::StreamFilterBase
   void onDestroy() override {}
 
@@ -58,6 +59,8 @@ public:
   }
 
 private:
+  FilterConfig& config_;
+
   Http::StreamDecoderFilterCallbacks* decoder_callbacks_{nullptr};
   Http::StreamEncoderFilterCallbacks* encoder_callbacks_{nullptr};
 };

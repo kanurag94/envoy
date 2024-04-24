@@ -26,14 +26,31 @@ namespace HttpFilters {
 namespace PayloadValidator {
 
 Http::FilterHeadersStatus Filter::decodeHeaders(Http::RequestHeaderMap&, bool) {
-  json_validator validator;
-
-  ASSERT(false);
-
   return Http::FilterHeadersStatus::Continue;
 }
 
-Http::FilterDataStatus Filter::decodeData(Buffer::Instance&, bool) {
+Http::FilterDataStatus Filter::decodeData(Buffer::Instance& data, bool stream_end) {
+
+    if (data.length() != 0) {
+    // Get access to data.
+    std::string message;
+    message.assign(std::string(static_cast<char*>(data.linearize(data.length())), data.length()));
+
+    std::cerr << "Calling with end_stream: " << stream_end << "\n";
+    
+    // Todo (reject if this is not json).
+    json rec_buf = json::parse(message);
+    
+    try {
+    config_.getValidator().validate(rec_buf);
+    } catch (const std::exception &e) {
+    std::cerr << "Payload does not match the schema, here is why: " << e.what() << "\n";
+    decoder_callbacks_->sendLocalReply(Http::Code::UnprocessableEntity, e.what(),
+                             nullptr, absl::nullopt, "");
+    return Http::FilterDataStatus::StopIterationNoBuffer;
+    }
+  }
+
   return Http::FilterDataStatus::Continue;
 }
 
