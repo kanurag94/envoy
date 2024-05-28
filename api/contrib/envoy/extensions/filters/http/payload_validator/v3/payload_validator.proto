@@ -2,6 +2,9 @@ syntax = "proto3";
 
 package envoy.extensions.filters.http.payload_validator.v3;
 
+import "envoy/config/core/v3/base.proto";
+import "envoy/type/http_status.proto";
+
 import "udpa/annotations/status.proto";
 
 option java_package = "io.envoyproxy.envoy.extensions.filters.http.payload_validator.v3";
@@ -12,7 +15,23 @@ option (udpa.annotations.file_status).package_version_status = ACTIVE;
 
 // [#protodoc-title: Payload Validator]
 
+message PayloadDescription {
+    string type = 1;
+    string schema = 2;
+}
+
+message ResponseDescription {
+    type.StatusCode  code = 1;
+    PayloadDescription response_body = 2;
+}
+
+message TransactionDescription {
+       config.core.v3.RequestMethod method = 1;
+       PayloadDescription request_body = 2;
+       repeated ResponseDescription responses = 3;
+}
+
 // Payload Validator filter config.
 message PayloadValidator {
-  string schema = 1;
+  repeated TransactionDescription operations = 1;
 }

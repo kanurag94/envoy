@@ -25,19 +25,38 @@ namespace Extensions {
 namespace HttpFilters {
 namespace PayloadValidator {
 
-Http::FilterHeadersStatus Filter::decodeHeaders(Http::RequestHeaderMap&, bool) {
+Http::FilterHeadersStatus Filter::decodeHeaders(Http::RequestHeaderMap& headers, bool) {
+  // get method header
+  const absl::string_view method = headers.getMethodValue();
+
+  if (config_.operations_.find(method) == config_.operations_.end()) {
+    // Return method not allowed.
+    decoder_callbacks_->sendLocalReply(Http::Code::MethodNotAllowed, "", nullptr, absl::nullopt,
+                                       "");
+    return Http::FilterHeadersStatus::StopIteration;
+  }
+
   return Http::FilterHeadersStatus::Continue;
 }
 
-Http::FilterDataStatus Filter::decodeData(Buffer::Instance& data, bool stream_end) {
+Http::FilterDataStatus Filter::decodeData(Buffer::Instance& data, bool /*stream_end*/) {
 
-    if (data.length() != 0) {
+  if (data.length() != 0) {
+    auto v = config_.operations_.find("GET");
+    auto& req_validator = (*v).second->request_;
+    auto result = req_validator->validate(data);
+
+    if (!result.first) {
+      decoder_callbacks_->sendLocalReply(Http::Code::UnprocessableEntity, result.second.value(),
+                                         nullptr, absl::nullopt, "");
+      return Http::FilterDataStatus::StopIterationNoBuffer;
+    }
+#if 0    
     // Get access to data.
     std::string message;
     message.assign(std::string(static_cast<char*>(data.linearize(data.length())), data.length()));
 
     std::cerr << "Calling with end_stream: " << stream_end << "\n";
-    
     // Todo (reject if this is not json).
     json rec_buf = json::parse(message);
     
@@ -45,10 +64,12 @@ Http::FilterDataStatus Filter::decodeData(Buffer::Instance& data, bool stream_en
     config_.getValidator().validate(rec_buf);
     } catch (const std::exception &e) {
     std::cerr << "Payload does not match the schema, here is why: " << e.what() << "\n";
+
     decoder_callbacks_->sendLocalReply(Http::Code::UnprocessableEntity, e.what(),
                              nullptr, absl::nullopt, "");
     return Http::FilterDataStatus::StopIterationNoBuffer;
     }
+#endif
   }
 
   return Http::FilterDataStatus::Continue;

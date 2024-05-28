@@ -1,10 +1,10 @@
 load("@aspect_bazel_lib//lib:repositories.bzl", "aspect_bazel_lib_dependencies")
+load("@com_github_pboettch_json_schema_validator//:workspace.bzl", "load_nlohmann_3_11_3")
 load("@com_github_rules_proto_grpc//:repositories.bzl", "rules_proto_grpc_toolchains")
 load("@emsdk//:deps.bzl", emsdk_deps = "deps")
 load("@proxy_wasm_cpp_host//bazel/cargo/wasmtime:crates.bzl", "wasmtime_fetch_remote_crates")
 load("@rules_python//python:repositories.bzl", "py_repositories", "python_register_toolchains")
 load("//bazel/external/cargo:crates.bzl", "raze_fetch_remote_crates")
-load("@com_github_pboettch_json_schema_validator//:workspace.bzl", "load_nlohmann_ext")
 
 def _python_minor_version(python_version):
     return "_".join(python_version.split(".")[:-1])
@@ -22,7 +22,9 @@ def envoy_dependencies_extra(
     wasmtime_fetch_remote_crates()
     rules_proto_grpc_toolchains()
     py_repositories()
-    load_nlohmann_ext()
+
+    # Use the same version for payload validator as the one used for regular JSON parsing.
+    load_nlohmann_3_11_3()
 
     # Registers underscored Python minor version - eg `python3_10`
     python_register_toolchains(
