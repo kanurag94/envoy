@@ -8,16 +8,6 @@ licenses(["notice"])  # Apache 2
 
 envoy_contrib_package()
 
-#envoy_cc_test_library(
-#    name = "postgres_test_utils_lib",
-#    srcs = ["postgres_test_utils.cc"],
-#    hdrs = ["postgres_test_utils.h"],
-#    deps = [
-#        "//contrib/postgres_proxy/filters/network/source:filter",
-#        "//source/common/buffer:buffer_lib",
-#    ],
-#)
-
 #envoy_cc_test(
 #    name = "postgres_decoder_tests",
 #    srcs = [
@@ -42,5 +32,16 @@ envoy_cc_test(
     ],
     deps = [
         "//contrib/payload_validator/filters/http/source:payload_validator_filter_lib",
+    ],
+)
+
+envoy_cc_test(
+    name = "filter_tests",
+    srcs = [
+        "filter_test.cc",
+    ],
+    deps = [
+        "//contrib/payload_validator/filters/http/source:payload_validator_filter_lib",
+        "//test/mocks/http:http_mocks",
     ],
 )

@@ -128,6 +128,78 @@ TEST(PayloadValidatorConfigTests, RequestAndResponseConfig) {
   ASSERT_TRUE(operation->getResponseValidator(205) == nullptr);
 }
 
+TEST(PayloadValidatorConfigTests, InvalidConfigs) {
+  // const std::string yaml = "";
+  envoy::extensions::filters::http::payload_validator::v3::PayloadValidator config;
+  // TestUtility::loadFromYaml(yaml, config);
+
+  // Create filter's config.
+  FilterConfig filter_config;
+  ASSERT_FALSE(filter_config.processConfig(config));
+}
+
+TEST(PayloadValidatorConfigTests, InvalidConfigs1) {
+  // const std::string yaml = "";
+  const std::string yaml = R"EOF(
+  operations:
+  - method: POST  
+    request_body:
+      schema: |
+        {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "title": "A person",
+            "properties": {
+                "foo": {
+                    "type": "string"
+            },
+            "required": [
+                "foo"
+            ],
+            "type": "object"
+        }
+    responses:
+    - code: 200 
+      response_body:
+        schema: |
+          {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "title": "A person",
+              "properties": {
+                  "foo": {
+                      "type": "string"
+                  }
+              },
+              "required": [
+                  "foo"
+              ],
+              "type": "object"
+          }
+    - code: 202 
+      response_body:
+        schema: |
+          {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "title": "A person",
+              "properties": {
+                  "foo": {
+                      "type": "string"
+                  }
+              },
+              "required": [
+                  "foo"
+              ],
+              "type": "object"
+          }
+  )EOF";
+
+  envoy::extensions::filters::http::payload_validator::v3::PayloadValidator config;
+  TestUtility::loadFromYaml(yaml, config);
+
+  // Create filter's config.
+  FilterConfig filter_config;
+  ASSERT_FALSE(filter_config.processConfig(config));
+}
+
 } // namespace PayloadValidator
 } // namespace HttpFilters
 } // namespace Extensions

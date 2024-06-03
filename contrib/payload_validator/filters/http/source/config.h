@@ -24,7 +24,7 @@ public:
   // passed validation.
   // If the boolean in the pair is false, the second value in the string
   // which describes the error.
-  virtual std::pair<bool, absl::optional<std::string>> validate(Buffer::Instance&) PURE;
+  virtual std::pair<bool, absl::optional<std::string>> validate(const Buffer::Instance&) PURE;
   virtual ~PayloadDescription() {}
 
 private:
@@ -34,7 +34,7 @@ private:
 class JSONPayloadDescription : public PayloadDescription {
 public:
   JSONPayloadDescription() : PayloadDescription("application/json") {}
-  std::pair<bool, absl::optional<std::string>> validate(Buffer::Instance&) override;
+  std::pair<bool, absl::optional<std::string>> validate(const Buffer::Instance&) override;
 
   bool initialize(const std::string& schema);
 
@@ -67,7 +67,7 @@ public:
   bool
   processConfig(const envoy::extensions::filters::http::payload_validator::v3::PayloadValidator&
                     proto_config);
-  const std::unique_ptr<Operation>& getOperation(const std::string& name) const;
+  const std::shared_ptr<Operation> getOperation(const std::string& name) const;
 
 private:
   Http::FilterFactoryCb createFilterFactoryFromProtoTyped(
@@ -76,8 +76,8 @@ private:
 
 public:
   json_validator validator_;
-  absl::flat_hash_map<std::string, std::unique_ptr<Operation>> operations_;
-  std::unique_ptr<Operation> empty_{};
+  absl::flat_hash_map<std::string, std::shared_ptr<Operation>> operations_;
+  std::shared_ptr<Operation> empty_{};
 };
 
 } // namespace PayloadValidator

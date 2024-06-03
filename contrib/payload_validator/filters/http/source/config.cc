@@ -26,7 +26,12 @@ const std::unique_ptr<PayloadDescription>& Operation::getResponseValidator(uint3
 
 bool JSONPayloadDescription::initialize(const std::string& schema) {
   // Convert schema string to nlohmann::json object.
-  json schema_as_json = json::parse(schema);
+  json schema_as_json;
+  try {
+    schema_as_json = json::parse(schema);
+  } catch (...) {
+    return false;
+  }
   // Schema seems to be a valid json doc, but it does not mean it describes
   // proper json schema.
 
@@ -35,9 +40,11 @@ bool JSONPayloadDescription::initialize(const std::string& schema) {
 }
 
 std::pair<bool, absl::optional<std::string>>
-JSONPayloadDescription::validate(Buffer::Instance& data) {
+JSONPayloadDescription::validate(const Buffer::Instance& data) {
   std::string message;
-  message.assign(std::string(static_cast<char*>(data.linearize(data.length())), data.length()));
+  message.assign(std::string(
+      static_cast<char*>((const_cast<Buffer::Instance&>(data)).linearize(data.length())),
+      data.length()));
 
   // Todo (reject if this is not json).
   json rec_buf = json::parse(message);
@@ -56,18 +63,23 @@ JSONPayloadDescription::validate(Buffer::Instance& data) {
 
 bool FilterConfig::processConfig(
     const envoy::extensions::filters::http::payload_validator::v3::PayloadValidator& config) {
+  bool request_found = false;
+  bool response_found = false;
+
   // iterate over configured operations.
   for (const auto& operation : config.operations()) {
     // const auto& method = operation.method();
-    auto new_operation = std::make_unique<Operation>();
+    auto new_operation = std::make_shared<Operation>();
 
     if (!operation.request_body().schema().empty()) {
 
       auto request_validator = std::make_unique<JSONPayloadDescription>();
-      request_validator->initialize(operation.request_body().schema());
-      // std::unique_ptr<PayloadDescription> request_validator = ;
+      if (!request_validator->initialize(operation.request_body().schema())) {
+        return false;
+      }
 
       new_operation->request_ = std::move(request_validator);
+      request_found = true;
     }
 
     // Iterate over response codes and their expected formats.
@@ -76,23 +88,28 @@ bool FilterConfig::processConfig(
 
       if (!response.response_body().schema().empty()) {
         auto response_validator = std::make_unique<JSONPayloadDescription>();
-        response_validator->initialize(operation.request_body().schema());
+        if (!response_validator->initialize(operation.request_body().schema())) {
+          return false;
+        }
 
         new_operation->responses_.emplace(code, std::move(response_validator));
-        ;
+        response_found = true;
       }
     }
 
     std::string method = envoy::config::core::v3::RequestMethod_Name(operation.method());
     operations_.emplace(method, std::move(new_operation));
-    // operations_.emplace("GET", std::move(new_operation));
+  }
+
+  if (!(request_found || response_found)) {
+    return false;
   }
 
   return true;
 }
 
 // Find context related to method.
-const std::unique_ptr<Operation>& FilterConfig::getOperation(const std::string& name) const {
+const std::shared_ptr<Operation> FilterConfig::getOperation(const std::string& name) const {
   const auto it = operations_.find(name);
 
   if (it == operations_.end()) {
@@ -107,7 +124,9 @@ Http::FilterFactoryCb FilterConfig::createFilterFactoryFromProtoTyped(
     const envoy::extensions::filters::http::payload_validator::v3::PayloadValidator& config,
     const std::string& /* stats_prefix*/, Server::Configuration::FactoryContext& /*context*/) {
 
-  processConfig(config);
+  if (!processConfig(config)) {
+    throw EnvoyException(fmt::format("Invalid payload validator config: {}", "TODO"));
+  }
 
 #if 0
   // to-do. Check if schema is a valid json.

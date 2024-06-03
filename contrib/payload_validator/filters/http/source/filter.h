@@ -7,10 +7,6 @@
 #include "envoy/runtime/runtime.h"
 #include "envoy/stats/scope.h"
 
-//#include "source/common/json/json_loader.h"
-
-//#include "contrib/dynamo/filters/http/source/dynamo_request_parser.h"
-//#include "contrib/dynamo/filters/http/source/dynamo_stats.h"
 #include "contrib/payload_validator/filters/http/source/config.h"
 
 namespace Envoy {
@@ -24,10 +20,6 @@ public:
 };
 
 /**
- * DynamoDb filter to process egress request to dynamo and capture comprehensive stats
- * It captures RPS/latencies:
- *  1) Per table per response code (and group of response codes, e.g., 2xx/3xx/etc)
- *  2) Per operation per response code (and group of response codes, e.g., 2xx/3xx/etc)
  */
 class Filter : public Http::StreamFilter {
 public:
@@ -60,6 +52,8 @@ public:
 
 private:
   FilterConfig& config_;
+
+  std::shared_ptr<Operation> current_operation_;
 
   Http::StreamDecoderFilterCallbacks* decoder_callbacks_{nullptr};
   Http::StreamEncoderFilterCallbacks* encoder_callbacks_{nullptr};
