@@ -57,13 +57,15 @@ Http::FilterDataStatus Filter::decodeData(Buffer::Instance& data, bool stream_en
 
   if (!stream_end) {
     // TODO: check the size of data.
-    decoder_callbacks_->addDecodedData(data, true);
+    decoder_callbacks_->addDecodedData(data, false);
     return Http::FilterDataStatus::StopIterationAndBuffer;
   }
 
   const auto* buffer = decoder_callbacks_->decodingBuffer();
   if (buffer == nullptr) {
     buffer = &data;
+  } else {
+    decoder_callbacks_->addDecodedData(data, false);
   }
   if (buffer->length() != 0) {
     auto result = req_validator->validate(*buffer);
