@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <nlohmann/json-schema.hpp>
 #include <string>
 #include <vector>
 
@@ -11,9 +12,6 @@
 #include "source/common/http/codes.h"
 #include "source/common/http/exception.h"
 #include "source/common/http/utility.h"
-
-//#include "source/common/json/json_loader.h"
-#include <nlohmann/json-schema.hpp>
 
 #include "absl/container/fixed_array.h"
 
@@ -55,13 +53,27 @@ Http::FilterDataStatus Filter::decodeData(Buffer::Instance& data, bool stream_en
     return Http::FilterDataStatus::Continue;
   }
 
+  const auto* buffer = decoder_callbacks_->decodingBuffer();
+
+  uint32_t total_length = data.length();
+  if (buffer != nullptr) {
+    total_length += buffer->length();
+  }
+
+  if (total_length > req_validator->maxSize()) {
+    decoder_callbacks_->sendLocalReply(
+        Http::Code::PayloadTooLarge,
+        fmt::format("Request validation failed. Payload exceeds {} bytes",
+                    req_validator->maxSize()),
+        nullptr, absl::nullopt, "");
+    return Http::FilterDataStatus::StopIterationNoBuffer;
+  }
+
   if (!stream_end) {
-    // TODO: check the size of data.
     decoder_callbacks_->addDecodedData(data, false);
     return Http::FilterDataStatus::StopIterationAndBuffer;
   }
 
-  const auto* buffer = decoder_callbacks_->decodingBuffer();
   if (buffer == nullptr) {
     buffer = &data;
   } else {

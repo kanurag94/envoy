@@ -63,24 +63,29 @@ JSONPayloadDescription::validate(const Buffer::Instance& data) {
 
 bool FilterConfig::processConfig(
     const envoy::extensions::filters::http::payload_validator::v3::PayloadValidator& config) {
-  bool request_found = false;
-  bool response_found = false;
+  //bool request_found = false;
+  //bool response_found = false;
 
   // iterate over configured operations.
   for (const auto& operation : config.operations()) {
     // const auto& method = operation.method();
     auto new_operation = std::make_shared<Operation>();
 
+    auto request_validator = std::make_unique<JSONPayloadDescription>();
+
+    if (operation.has_request_max_size()) {
+       request_validator->setMaxSize(operation.request_max_size().value());
+    }
+
     if (!operation.request_body().schema().empty()) {
 
-      auto request_validator = std::make_unique<JSONPayloadDescription>();
       if (!request_validator->initialize(operation.request_body().schema())) {
         return false;
       }
 
-      new_operation->request_ = std::move(request_validator);
-      request_found = true;
+    //  request_found = true;
     }
+      new_operation->request_ = std::move(request_validator);
 
     // Iterate over response codes and their expected formats.
     for (const auto& response : operation.responses()) {
@@ -93,7 +98,7 @@ bool FilterConfig::processConfig(
         }
 
         new_operation->responses_.emplace(code, std::move(response_validator));
-        response_found = true;
+     //   response_found = true;
       }
     }
 
@@ -101,9 +106,11 @@ bool FilterConfig::processConfig(
     operations_.emplace(method, std::move(new_operation));
   }
 
+/*
   if (!(request_found || response_found)) {
     return false;
   }
+*/
 
   return true;
 }

@@ -5,7 +5,10 @@ package envoy.extensions.filters.http.payload_validator.v3;
 import "envoy/config/core/v3/base.proto";
 import "envoy/type/http_status.proto";
 
+import "google/protobuf/wrappers.proto";
+
 import "udpa/annotations/status.proto";
+import "validate/validate.proto";
 
 option java_package = "io.envoyproxy.envoy.extensions.filters.http.payload_validator.v3";
 option java_outer_classname = "PayloadValidatorProto";
@@ -28,7 +31,8 @@ message ResponseDescription {
 message TransactionDescription {
        config.core.v3.RequestMethod method = 1;
        PayloadDescription request_body = 2;
-       repeated ResponseDescription responses = 3;
+       google.protobuf.UInt32Value request_max_size = 3 [(validate.rules).uint32 = {gt: 0}];
+       repeated ResponseDescription responses = 4;
 }
 
 // Payload Validator filter config.

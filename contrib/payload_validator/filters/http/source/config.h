@@ -19,16 +19,19 @@ namespace PayloadValidator {
 
 class PayloadDescription {
 public:
-  PayloadDescription(const std::string type) : type_(type) {}
+  PayloadDescription(const std::string type) : type_(type), max_size_(1024 * 1024) {}
   // Returns a pair. If the boolean is true, it means that payload
   // passed validation.
   // If the boolean in the pair is false, the second value in the string
   // which describes the error.
   virtual std::pair<bool, absl::optional<std::string>> validate(const Buffer::Instance&) PURE;
   virtual ~PayloadDescription() {}
+  uint32_t maxSize() const { return max_size_; }
+  void setMaxSize(uint32_t max_size) { max_size_ = max_size; }
 
 private:
   std::string type_;
+  uint32_t max_size_;
 };
 
 class JSONPayloadDescription : public PayloadDescription {
