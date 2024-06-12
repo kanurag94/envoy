@@ -195,6 +195,10 @@ TEST_F(PayloadValidatorDataTests, RejectGetWithPayload) {
   ASSERT_EQ(Http::FilterDataStatus::StopIterationNoBuffer, test_filter_->decodeData(data, true));
 }
 
+TEST_F(PayloadValidatorDataTests, SendLocalDoesNotRunValidator) {
+  // TODO: make sure that send local skips any processing on receive path.
+}
+
 } // namespace PayloadValidator
 } // namespace HttpFilters
 } // namespace Extensions

@@ -54,6 +54,7 @@ private:
   FilterConfig& config_;
 
   std::shared_ptr<Operation> current_operation_;
+  bool local_reply_{false};
 
   Http::StreamDecoderFilterCallbacks* decoder_callbacks_{nullptr};
   Http::StreamEncoderFilterCallbacks* encoder_callbacks_{nullptr};
