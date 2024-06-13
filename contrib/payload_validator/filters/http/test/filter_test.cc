@@ -69,7 +69,6 @@ public:
 
 // Test configuration of requests
 TEST_F(PayloadValidatorDataTests, ValidateRequestMethod) {
-
   Http::TestRequestHeaderMapImpl test_headers;
 
   // POST with subsequent body should be accepted.

@@ -116,7 +116,7 @@ Http::FilterTrailersStatus Filter::decodeTrailers(Http::RequestTrailerMap&) {
   return Http::FilterTrailersStatus::Continue;
 }
 
-Http::FilterHeadersStatus Filter::encodeHeaders(Http::ResponseHeaderMap& headers, bool) {
+Http::FilterHeadersStatus Filter::encodeHeaders(Http::ResponseHeaderMap& headers, bool stream_end) {
   if (local_reply_) {
     return Http::FilterHeadersStatus::Continue;
   }
@@ -150,6 +150,16 @@ Http::FilterHeadersStatus Filter::encodeHeaders(Http::ResponseHeaderMap& headers
 
   // Store the pointer to the description of request and response associated with the received
   // method.
+  if (stream_end) {
+    if ((*it).second != nullptr) {
+      // Body is not present but is required.
+      local_reply_ = true;
+      // Return method not allowed.
+      decoder_callbacks_->sendLocalReply(Http::Code::UnprocessableEntity,
+                                         "Response body is missing", nullptr, absl::nullopt, "");
+      return Http::FilterHeadersStatus::StopIteration;
+    }
+  }
 
   return Http::FilterHeadersStatus::Continue;
 }

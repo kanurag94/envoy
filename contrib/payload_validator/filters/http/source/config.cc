@@ -98,12 +98,14 @@ bool FilterConfig::processConfig(
 
       if (!response.response_body().schema().empty()) {
         auto response_validator = std::make_unique<JSONPayloadDescription>();
-        if (!response_validator->initialize(operation.request_body().schema())) {
+        if (!response_validator->initialize(response.response_body().schema())) {
           return false;
         }
 
         new_operation->responses_.emplace(code, std::move(response_validator));
         //   response_found = true;
+      } else {
+        new_operation->responses_.emplace(code, nullptr);
       }
     }
 
