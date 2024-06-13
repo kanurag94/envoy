@@ -48,7 +48,7 @@ TEST(PayloadValidatorConfigTests, RequestOnlyConfig) {
   // For GET, the validator should not exist.
   auto& operation1 = filter_config.getOperation("GET");
   ASSERT_TRUE(operation1 != nullptr);
-  ASSERT_TRUE(operation1->getRequestValidator() == nullptr);
+  ASSERT_FALSE(operation1->getRequestValidator()->active());
 
   // For DELETE, nothing was defined, so entire operation's context should not be found.
   auto& operation2 = filter_config.getOperation("DELETE");
@@ -75,7 +75,8 @@ TEST(PayloadValidatorConfigTests, RequestAndResponseConfig) {
             "type": "object"
         }
     responses:
-    - code: 200 
+    - http_status:
+        code: 200
       response_body:
         schema: |
           {
@@ -91,7 +92,8 @@ TEST(PayloadValidatorConfigTests, RequestAndResponseConfig) {
               ],
               "type": "object"
           }
-    - code: 202 
+    - http_status:
+        code: 202
       response_body:
         schema: |
           {
@@ -158,7 +160,8 @@ TEST(PayloadValidatorConfigTests, InvalidConfigs1) {
             "type": "object"
         }
     responses:
-    - code: 200 
+    - http_status:
+        code: 200
       response_body:
         schema: |
           {
@@ -174,7 +177,8 @@ TEST(PayloadValidatorConfigTests, InvalidConfigs1) {
               ],
               "type": "object"
           }
-    - code: 202 
+    - http_status:
+        code: 202
       response_body:
         schema: |
           {

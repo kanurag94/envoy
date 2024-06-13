@@ -28,10 +28,13 @@ public:
   virtual ~PayloadDescription() {}
   uint32_t maxSize() const { return max_size_; }
   void setMaxSize(uint32_t max_size) { max_size_ = max_size; }
+  bool active() const { return active_; }
 
-private:
+protected:
   std::string type_;
   uint32_t max_size_;
+  // Validator has been initialized with schema definition.
+  bool active_{false};
 };
 
 class JSONPayloadDescription : public PayloadDescription {

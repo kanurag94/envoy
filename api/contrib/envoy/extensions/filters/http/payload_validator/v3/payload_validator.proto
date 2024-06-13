@@ -24,18 +24,18 @@ message PayloadDescription {
 }
 
 message ResponseDescription {
-    type.StatusCode  code = 1;
+    type.HttpStatus  http_status = 1 [(validate.rules).message = {required: true}];
     PayloadDescription response_body = 2;
 }
 
 message TransactionDescription {
-       config.core.v3.RequestMethod method = 1;
+       config.core.v3.RequestMethod method = 1 [(validate.rules).enum = {defined_only: true}];
        PayloadDescription request_body = 2;
-       google.protobuf.UInt32Value request_max_size = 3 [(validate.rules).uint32 = {gt: 0}];
+       google.protobuf.UInt32Value request_max_size = 3;
        repeated ResponseDescription responses = 4;
 }
 
 // Payload Validator filter config.
 message PayloadValidator {
-  repeated TransactionDescription operations = 1;
+  repeated TransactionDescription operations = 1 [(validate.rules).repeated = {min_items: 1}];
 }

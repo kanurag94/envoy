@@ -39,6 +39,9 @@ typed_config:
             ],
             "type": "object"
         }
+  - method: DELETE
+  - method: PUT
+    request_max_size: 0
 )EOF";
     config_helper_.prependFilter(filter_config);
     initialize();
@@ -89,6 +92,13 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_tuple("POST", true, "422", "{\"foo\": 1}"),
         // POST with too large body. Body length is checked before passing it to validator.
         std::make_tuple("POST", true, "413", "{\"foo\":\"abcdefghijklmnop\"}"),
+        // DELETE is allowed but body is not validated. With or without body it should not be
+        // stopped.
+        std::make_tuple("DELETE", true, "200", "{\"foo\":\"abcdefghijklmnop\"}"),
+        std::make_tuple("DELETE", false, "200", ""),
+        // PUT's body must not be present. Max allowed body length is zero.
+        std::make_tuple("PUT", true, "413", "{\"foo\":\"abcdefghijklmnop\"}"),
+        std::make_tuple("PUT", false, "200", ""),
         // GET is not allowed.
         std::make_tuple("GET", false, "405", "")));
 

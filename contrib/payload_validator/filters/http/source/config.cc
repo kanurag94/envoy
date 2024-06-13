@@ -35,6 +35,7 @@ bool JSONPayloadDescription::initialize(const std::string& schema) {
   // Schema seems to be a valid json doc, but it does not mean it describes
   // proper json schema.
 
+  active_ = true;
   validator_.set_root_schema(schema_as_json);
   return true;
 }
@@ -66,6 +67,10 @@ bool FilterConfig::processConfig(
   // bool request_found = false;
   // bool response_found = false;
 
+  if (config.operations().empty()) {
+    return false;
+  }
+
   // iterate over configured operations.
   for (const auto& operation : config.operations()) {
     // const auto& method = operation.method();
@@ -89,7 +94,7 @@ bool FilterConfig::processConfig(
 
     // Iterate over response codes and their expected formats.
     for (const auto& response : operation.responses()) {
-      auto code = response.code();
+      auto code = response.http_status().code();
 
       if (!response.response_body().schema().empty()) {
         auto response_validator = std::make_unique<JSONPayloadDescription>();

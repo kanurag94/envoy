@@ -42,7 +42,7 @@ Http::FilterHeadersStatus Filter::decodeHeaders(Http::RequestHeaderMap& headers,
   current_operation_ = (*it).second;
 
   if (stream_end) {
-    if (current_operation_->request_ != nullptr) {
+    if (current_operation_->request_->active()) {
       local_reply_ = true;
       decoder_callbacks_->sendLocalReply(Http::Code::UnprocessableEntity, "Payload body is missing",
                                          nullptr, absl::nullopt, "");
@@ -84,6 +84,10 @@ Http::FilterDataStatus Filter::decodeData(Buffer::Instance& data, bool stream_en
   if (!stream_end) {
     decoder_callbacks_->addDecodedData(data, false);
     return Http::FilterDataStatus::StopIterationAndBuffer;
+  }
+
+  if (!req_validator->active()) {
+    return Http::FilterDataStatus::Continue;
   }
 
   if (buffer == nullptr) {
