@@ -71,16 +71,17 @@ public:
 TEST_F(PayloadValidatorDataTests, ValidateRequestMethod) {
   Http::TestRequestHeaderMapImpl test_headers;
 
-  // POST with subsequent body should be accepted.
+  // POST with subsequent body should be accepted (without calling sendLocalReply).
   test_headers.setMethod(Http::Headers::get().MethodValues.Post);
-  ASSERT_EQ(Http::FilterHeadersStatus::Continue, test_filter_->decodeHeaders(test_headers, false));
+  ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
+            test_filter_->decodeHeaders(test_headers, false));
   // Header-only POST should be rejected. Body must be present.
   EXPECT_CALL(decoder_callbacks_, sendLocalReply(Http::Code::UnprocessableEntity, _, _, _, _));
   ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
             test_filter_->decodeHeaders(test_headers, true));
   // Header-only GET should be accepted
   test_headers.setMethod(Http::Headers::get().MethodValues.Get);
-  ASSERT_EQ(Http::FilterHeadersStatus::Continue, test_filter_->decodeHeaders(test_headers, false));
+  ASSERT_EQ(Http::FilterHeadersStatus::Continue, test_filter_->decodeHeaders(test_headers, true));
 
   // PUT should not be accepted. Callback to send local reply should be called.
   test_headers.setMethod(Http::Headers::get().MethodValues.Put);
@@ -94,7 +95,8 @@ TEST_F(PayloadValidatorDataTests, ValidateRequestBody) {
 
   // Header decoding is necessary to select proper body validator.
   test_headers.setMethod(Http::Headers::get().MethodValues.Post);
-  ASSERT_EQ(Http::FilterHeadersStatus::Continue, test_filter_->decodeHeaders(test_headers, false));
+  ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
+            test_filter_->decodeHeaders(test_headers, false));
 
   // TODO: separate validator from filter. We are not checking validator here.
   std::string body = "{\"foo\": \"value\"}";
@@ -118,7 +120,8 @@ TEST_F(PayloadValidatorDataTests, ValidateChunkedRequestBody) {
 
   // Header decoding is necessary to select proper body validator.
   test_headers.setMethod(Http::Headers::get().MethodValues.Post);
-  ASSERT_EQ(Http::FilterHeadersStatus::Continue, test_filter_->decodeHeaders(test_headers, false));
+  ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
+            test_filter_->decodeHeaders(test_headers, false));
 
   std::string body_part1 = "{\"foo\":";
   std::string body_part2 = "\"value\"}";
@@ -137,7 +140,8 @@ TEST_F(PayloadValidatorDataTests, RejectTooLargeBody) {
 
   // Header decoding is necessary to select proper body validator.
   test_headers.setMethod(Http::Headers::get().MethodValues.Post);
-  ASSERT_EQ(Http::FilterHeadersStatus::Continue, test_filter_->decodeHeaders(test_headers, false));
+  ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
+            test_filter_->decodeHeaders(test_headers, false));
 
   // Body does not have to be json. It is rejected before passing to json parser.
   std::string body = "abcdefghji";
@@ -161,7 +165,8 @@ TEST_F(PayloadValidatorDataTests, RejectTooLargeBodyChunked) {
 
   // Header decoding is necessary to select proper body validator.
   test_headers.setMethod(Http::Headers::get().MethodValues.Post);
-  ASSERT_EQ(Http::FilterHeadersStatus::Continue, test_filter_->decodeHeaders(test_headers, false));
+  ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
+            test_filter_->decodeHeaders(test_headers, false));
 
   // Body does not have to be json. It is rejected before passing to json parser.
   std::string body = "abcdefghji";

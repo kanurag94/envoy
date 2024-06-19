@@ -14,11 +14,11 @@ namespace Extensions {
 namespace HttpFilters {
 namespace PayloadValidator {
 
-const std::unique_ptr<PayloadDescription>& Operation::getResponseValidator(uint32_t code) const {
+const std::shared_ptr<PayloadDescription> Operation::getResponseValidator(uint32_t code) const {
   auto it = responses_.find(code);
 
   if (it == responses_.end()) {
-    return empty_;
+    return nullptr;
   }
 
   return (*it).second;
@@ -48,7 +48,14 @@ JSONPayloadDescription::validate(const Buffer::Instance& data) {
       data.length()));
 
   // Todo (reject if this is not json).
-  json rec_buf = json::parse(message);
+  json rec_buf;
+  try {
+    rec_buf = json::parse(message);
+  } catch (const std::exception& e) {
+    // Payload is not valid JSON.
+    return std::make_pair<bool, absl::optional<std::string>>(false,
+                                                             absl::optional<std::string>(e.what()));
+  }
 
   try {
     validator_.validate(rec_buf);
@@ -97,7 +104,7 @@ bool FilterConfig::processConfig(
       auto code = response.http_status().code();
 
       if (!response.response_body().schema().empty()) {
-        auto response_validator = std::make_unique<JSONPayloadDescription>();
+        auto response_validator = std::make_shared<JSONPayloadDescription>();
         if (!response_validator->initialize(response.response_body().schema())) {
           return false;
         }
@@ -128,7 +135,7 @@ const std::shared_ptr<Operation> FilterConfig::getOperation(const std::string& n
 
   if (it == operations_.end()) {
 
-    return empty_;
+    return nullptr;
   }
 
   return (*it).second;

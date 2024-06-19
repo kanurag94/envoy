@@ -51,13 +51,12 @@ private:
 struct Operation {
 public:
   const std::unique_ptr<PayloadDescription>& getRequestValidator() const { return request_; }
-  const std::unique_ptr<PayloadDescription>& getResponseValidator(uint32_t code) const;
+  const std::shared_ptr<PayloadDescription> getResponseValidator(uint32_t code) const;
 
   std::unique_ptr<PayloadDescription> request_;
-  absl::flat_hash_map</*code*/ uint32_t, std::unique_ptr<PayloadDescription>> responses_;
+  absl::flat_hash_map</*code*/ uint32_t, std::shared_ptr<PayloadDescription>> responses_;
 
 private:
-  std::unique_ptr<PayloadDescription> empty_{};
 };
 
 /**

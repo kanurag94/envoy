@@ -54,6 +54,7 @@ private:
   FilterConfig& config_;
 
   std::shared_ptr<Operation> current_operation_;
+  std::shared_ptr<PayloadDescription> response_validator_;
   bool local_reply_{false};
 
   Http::StreamDecoderFilterCallbacks* decoder_callbacks_{nullptr};

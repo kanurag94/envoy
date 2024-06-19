@@ -48,13 +48,14 @@ Http::FilterHeadersStatus Filter::decodeHeaders(Http::RequestHeaderMap& headers,
                                          nullptr, absl::nullopt, "");
       return Http::FilterHeadersStatus::StopIteration;
     };
+    return Http::FilterHeadersStatus::Continue;
   }
 
-  return Http::FilterHeadersStatus::Continue;
+  // Do not send headers upstream yet, because the body validation may fail.
+  return Http::FilterHeadersStatus::StopIteration;
 }
 
 Http::FilterDataStatus Filter::decodeData(Buffer::Instance& data, bool stream_end) {
-
   // If there is a request validator for this method, entire data must be buffered
   // in order to do validation.
   // If there is no validator, there is no need for buffering.
@@ -122,11 +123,10 @@ Http::FilterHeadersStatus Filter::encodeHeaders(Http::ResponseHeaderMap& headers
   }
   // get Status header
   absl::optional<uint64_t> status = Http::Utility::getResponseStatusOrNullopt(headers);
-  ;
 
   if (status == absl::nullopt) {
     local_reply_ = true;
-    decoder_callbacks_->sendLocalReply(Http::Code::UnprocessableEntity,
+    encoder_callbacks_->sendLocalReply(Http::Code::UnprocessableEntity,
                                        "Incorrect response. Status header is missing.", nullptr,
                                        absl::nullopt, "");
     return Http::FilterHeadersStatus::StopIteration;
@@ -141,30 +141,65 @@ Http::FilterHeadersStatus Filter::encodeHeaders(Http::ResponseHeaderMap& headers
   if (it == current_operation_->responses_.end()) {
     local_reply_ = true;
     // Return method not allowed.
-    decoder_callbacks_->sendLocalReply(
+    encoder_callbacks_->sendLocalReply(
         Http::Code::UnprocessableEntity,
         fmt::format("Not allowed response status code: {}", status.value()), nullptr, absl::nullopt,
         "");
     return Http::FilterHeadersStatus::StopIteration;
   }
 
-  // Store the pointer to the description of request and response associated with the received
-  // method.
   if (stream_end) {
     if ((*it).second != nullptr) {
       // Body is not present but is required.
       local_reply_ = true;
       // Return method not allowed.
-      decoder_callbacks_->sendLocalReply(Http::Code::UnprocessableEntity,
+      encoder_callbacks_->sendLocalReply(Http::Code::UnprocessableEntity,
                                          "Response body is missing", nullptr, absl::nullopt, "");
       return Http::FilterHeadersStatus::StopIteration;
     }
   }
 
-  return Http::FilterHeadersStatus::Continue;
+  // Store reference to response validator.
+  response_validator_ = (*it).second;
+
+  // Do not continue yet, as body validation may fail.
+  return Http::FilterHeadersStatus::StopIteration;
 }
 
-Http::FilterDataStatus Filter::encodeData(Buffer::Instance&, bool) {
+Http::FilterDataStatus Filter::encodeData(Buffer::Instance& data, bool stream_end) {
+  if (local_reply_) {
+    return Http::FilterDataStatus::Continue;
+  }
+
+  if (response_validator_ == nullptr) {
+    return Http::FilterDataStatus::Continue;
+  }
+
+  const auto* buffer = encoder_callbacks_->encodingBuffer();
+
+  if (!stream_end) {
+    encoder_callbacks_->addEncodedData(data, false);
+    return Http::FilterDataStatus::StopIterationAndBuffer;
+  }
+
+  if (buffer == nullptr) {
+    buffer = &data;
+  } else {
+    encoder_callbacks_->addEncodedData(data, false);
+  }
+  if (buffer->length() != 0) {
+    auto result = response_validator_->validate(*buffer);
+
+    if (!result.first) {
+      local_reply_ = true;
+      encoder_callbacks_->sendLocalReply(Http::Code::UnprocessableEntity,
+                                         std::string("Request validation failed: ") +
+                                             result.second.value(),
+                                         nullptr, absl::nullopt, "");
+      return Http::FilterDataStatus::StopIterationNoBuffer;
+    }
+  }
+
   return Http::FilterDataStatus::Continue;
 }
 

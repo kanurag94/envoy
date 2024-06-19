@@ -105,7 +105,8 @@ INSTANTIATE_TEST_SUITE_P(
 // Validate responses.
 class ResponseValidatorIntegrationTest
     : public Envoy::HttpIntegrationTest,
-      public ::testing::TestWithParam<std::tuple<std::string, bool, std::string, std::string>> {
+      public ::testing::TestWithParam<
+          std::tuple<std::string, std::string, bool, std::string, std::string>> {
 public:
   ResponseValidatorIntegrationTest()
       : HttpIntegrationTest(Http::CodecType::HTTP1, Network::Address::IpVersion::v4) {
@@ -157,17 +158,19 @@ TEST_P(ResponseValidatorIntegrationTest, RejectedRequests) {
 
   waitForNextUpstreamRequest();
 
-  if (std::get<1>(GetParam())) {
-    upstream_request_->encodeHeaders(Http::TestResponseHeaderMapImpl{{":status", "200"}}, false);
-    upstream_request_->encodeData(std::get<3>(param), true);
+  if (std::get<2>(GetParam())) {
+    upstream_request_->encodeHeaders(
+        Http::TestResponseHeaderMapImpl{{":status", std::get<1>(param)}}, false);
+    upstream_request_->encodeData(std::get<4>(param), true);
   } else {
     // Send only headers
-    upstream_request_->encodeHeaders(Http::TestResponseHeaderMapImpl{{":status", "200"}}, true);
+    upstream_request_->encodeHeaders(
+        Http::TestResponseHeaderMapImpl{{":status", std::get<1>(param)}}, true);
   }
   ASSERT_TRUE(response->waitForEndStream());
 
   EXPECT_TRUE(response->complete());
-  EXPECT_THAT(response->headers(), Http::HttpStatusIs(std::get<2>(param)));
+  EXPECT_THAT(response->headers(), Http::HttpStatusIs(std::get<3>(param)));
 }
 
 // The following test cases test payload validation of requests.
@@ -177,23 +180,16 @@ TEST_P(ResponseValidatorIntegrationTest, RejectedRequests) {
 INSTANTIATE_TEST_SUITE_P(ResponseValidatorIntegrationTestSuite, ResponseValidatorIntegrationTest,
                          ::testing::Values(
                              // Response to GET without body.
-                             std::make_tuple("GET", false, "422", "{}"),
+                             std::make_tuple("GET", "200", false, "422", "{}"),
+                             // Response to GET with incorrect body, but still in json format.
+                             std::make_tuple("GET", "200", true, "422", "{\"foo\": 1}"),
                              // Response to GET with incorrect body.
-                             std::make_tuple("GET", true, "422", "{\"foo\": 1}"),
-#if 0
-        std::make_tuple("POST", true, "200", "{\"foo\":\"abcdefghij\"}"),
-        // POST with too large body. Body length is checked before passing it to validator.
-        std::make_tuple("POST", true, "413", "{\"foo\":\"abcdefghijklmnop\"}"),
-        // DELETE is allowed but body is not validated. With or without body it should not be
-        // stopped.
-        std::make_tuple("DELETE", true, "200", "{\"foo\":\"abcdefghijklmnop\"}"),
-        std::make_tuple("DELETE", false, "200", ""),
-        // PUT's body must not be present. Max allowed body length is zero.
-        std::make_tuple("PUT", true, "413", "{\"foo\":\"abcdefghijklmnop\"}"),
-        std::make_tuple("PUT", false, "200", ""),
-#endif
+                             std::make_tuple("GET", "200", true, "422", "blah}"),
+                             // Response to GET with not allowed response code 202.
+                             std::make_tuple("GET", "202", true, "422", ""),
                              // Response to GET with correct body.
-                             std::make_tuple("GET", true, "200", "{\"foo\":\"abcdefghij\"}")));
+                             std::make_tuple("GET", "200", true, "200",
+                                             "{\"foo\":\"abcdefghij\"}")));
 
 } // namespace PayloadValidator
 } // namespace HttpFilters
