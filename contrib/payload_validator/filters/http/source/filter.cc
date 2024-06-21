@@ -156,6 +156,8 @@ Http::FilterHeadersStatus Filter::encodeHeaders(Http::ResponseHeaderMap& headers
       encoder_callbacks_->sendLocalReply(Http::Code::UnprocessableEntity,
                                          "Response body is missing", nullptr, absl::nullopt, "");
       return Http::FilterHeadersStatus::StopIteration;
+    } else {
+      return Http::FilterHeadersStatus::Continue;
     }
   }
 

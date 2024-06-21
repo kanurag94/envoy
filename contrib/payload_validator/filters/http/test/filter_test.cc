@@ -12,9 +12,60 @@ namespace Extensions {
 namespace HttpFilters {
 namespace PayloadValidator {
 
-class PayloadValidatorDataTests : public ::testing::Test {
+const std::string main_post_config = R"EOF(
+  operations:
+  - method: POST
+    request_max_size: 100
+    request_body:
+      schema: |
+        {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "title": "A person",
+            "properties": {
+                "foo": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "foo"
+            ],
+            "type": "object"
+        }
+  )EOF";
+
+const std::string get_method_config = R"EOF(
+  - method: GET
+    request_max_size: 0
+  )EOF";
+
+const std::string empty_200_response_config = R"EOF(
+    responses:
+    - http_status:
+        code: 200
+  )EOF";
+
+const std::string payload_for_200_response_config = R"EOF(
+      response_body:
+        schema: |
+          {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "title": "A person",
+              "properties": {
+                  "foo": {
+                      "type": "string"
+                  }
+              },
+              "required": [
+                  "foo"
+              ],
+              "type": "object"
+          }
+  )EOF";
+
+class PayloadValidatorFilterTests : public ::testing::Test {
 public:
-  PayloadValidatorDataTests() {
+  void initialize(const std::string config_string) {
+#if 0
     const std::string yaml = R"EOF(
   operations:
   - method: POST  
@@ -37,9 +88,10 @@ public:
   - method: GET  
     request_max_size: 0
   )EOF";
+#endif
 
     envoy::extensions::filters::http::payload_validator::v3::PayloadValidator config;
-    TestUtility::loadFromYaml(yaml, config);
+    TestUtility::loadFromYaml(config_string, config);
 
     // Create filter's config.
     filter_config_ = std::make_unique<FilterConfig>();
@@ -58,17 +110,21 @@ public:
           data_.add(data);
           buffered_ = true;
         }));
+
+    test_filter_->setEncoderFilterCallbacks(encoder_callbacks_);
   }
 
   std::unique_ptr<FilterConfig> filter_config_;
   testing::NiceMock<Http::MockStreamDecoderFilterCallbacks> decoder_callbacks_;
+  testing::NiceMock<Http::MockStreamEncoderFilterCallbacks> encoder_callbacks_;
   std::unique_ptr<Filter> test_filter_;
   Buffer::OwnedImpl data_;
   bool buffered_{false};
 };
 
 // Test configuration of requests
-TEST_F(PayloadValidatorDataTests, ValidateRequestMethod) {
+TEST_F(PayloadValidatorFilterTests, ValidateRequestMethod) {
+  initialize(main_post_config + get_method_config);
   Http::TestRequestHeaderMapImpl test_headers;
 
   // POST with subsequent body should be accepted (without calling sendLocalReply).
@@ -90,7 +146,8 @@ TEST_F(PayloadValidatorDataTests, ValidateRequestMethod) {
             test_filter_->decodeHeaders(test_headers, true));
 }
 
-TEST_F(PayloadValidatorDataTests, ValidateRequestBody) {
+TEST_F(PayloadValidatorFilterTests, ValidateRequestBody) {
+  initialize(main_post_config);
   Http::TestRequestHeaderMapImpl test_headers;
 
   // Header decoding is necessary to select proper body validator.
@@ -115,7 +172,8 @@ TEST_F(PayloadValidatorDataTests, ValidateRequestBody) {
   ASSERT_EQ(Http::FilterDataStatus::StopIterationNoBuffer, test_filter_->decodeData(data, true));
 }
 
-TEST_F(PayloadValidatorDataTests, ValidateChunkedRequestBody) {
+TEST_F(PayloadValidatorFilterTests, ValidateChunkedRequestBody) {
+  initialize(main_post_config);
   Http::TestRequestHeaderMapImpl test_headers;
 
   // Header decoding is necessary to select proper body validator.
@@ -135,7 +193,8 @@ TEST_F(PayloadValidatorDataTests, ValidateChunkedRequestBody) {
   ASSERT_EQ(Http::FilterDataStatus::Continue, test_filter_->decodeData(data, true));
 }
 
-TEST_F(PayloadValidatorDataTests, RejectTooLargeBody) {
+TEST_F(PayloadValidatorFilterTests, RejectTooLargeBody) {
+  initialize(main_post_config);
   Http::TestRequestHeaderMapImpl test_headers;
 
   // Header decoding is necessary to select proper body validator.
@@ -160,7 +219,8 @@ TEST_F(PayloadValidatorDataTests, RejectTooLargeBody) {
   ASSERT_EQ(Http::FilterDataStatus::StopIterationNoBuffer, test_filter_->decodeData(data, true));
 }
 
-TEST_F(PayloadValidatorDataTests, RejectTooLargeBodyChunked) {
+TEST_F(PayloadValidatorFilterTests, RejectTooLargeBodyChunked) {
+  initialize(main_post_config);
   Http::TestRequestHeaderMapImpl test_headers;
 
   // Header decoding is necessary to select proper body validator.
@@ -188,7 +248,8 @@ TEST_F(PayloadValidatorDataTests, RejectTooLargeBodyChunked) {
   ASSERT_EQ(Http::FilterDataStatus::StopIterationNoBuffer, test_filter_->decodeData(data, true));
 }
 
-TEST_F(PayloadValidatorDataTests, RejectGetWithPayload) {
+TEST_F(PayloadValidatorFilterTests, RejectGetWithPayload) {
+  initialize(main_post_config + get_method_config);
   Http::TestRequestHeaderMapImpl test_headers;
 
   // Header decoding is necessary to select proper body validator.
@@ -204,8 +265,89 @@ TEST_F(PayloadValidatorDataTests, RejectGetWithPayload) {
   ASSERT_EQ(Http::FilterDataStatus::StopIterationNoBuffer, test_filter_->decodeData(data, true));
 }
 
-TEST_F(PayloadValidatorDataTests, SendLocalDoesNotRunValidator) {
+TEST_F(PayloadValidatorFilterTests, SendLocalDoesNotRunValidator) {
   // TODO: make sure that send local skips any processing on receive path.
+}
+
+TEST_F(PayloadValidatorFilterTests, RejectInvalidHttpReponse) {
+  initialize(main_post_config);
+  Http::TestResponseHeaderMapImpl test_headers;
+  // Remove the status header.
+  test_headers.removeStatus();
+
+  EXPECT_CALL(encoder_callbacks_, sendLocalReply(Http::Code::UnprocessableEntity, _, _, _, _));
+  ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
+            test_filter_->encodeHeaders(test_headers, true));
+}
+
+TEST_F(PayloadValidatorFilterTests, PassAllResponsesIfNothingConfigured) {
+  initialize(main_post_config + get_method_config);
+
+  // Header decoding is necessary to select proper body validator.
+  Http::TestRequestHeaderMapImpl test_request_headers;
+  test_request_headers.setMethod(Http::Headers::get().MethodValues.Get);
+  ASSERT_EQ(Http::FilterHeadersStatus::Continue,
+            test_filter_->decodeHeaders(test_request_headers, true));
+
+  Http::TestResponseHeaderMapImpl test_response_headers;
+  test_response_headers.setStatus("404");
+
+  ASSERT_EQ(Http::FilterHeadersStatus::Continue,
+            test_filter_->encodeHeaders(test_response_headers, true));
+}
+
+TEST_F(PayloadValidatorFilterTests, PassOnlyConfiguredResponses) {
+  initialize(main_post_config + get_method_config + empty_200_response_config);
+
+  // Header decoding is necessary to select proper body validator.
+  Http::TestRequestHeaderMapImpl test_request_headers;
+  test_request_headers.setMethod(Http::Headers::get().MethodValues.Get);
+  ASSERT_EQ(Http::FilterHeadersStatus::Continue,
+            test_filter_->decodeHeaders(test_request_headers, true));
+
+  Http::TestResponseHeaderMapImpl test_response_headers;
+
+  // 200 response is allowed, because it is configured.
+  test_response_headers.setStatus("200");
+  ASSERT_EQ(Http::FilterHeadersStatus::Continue,
+            test_filter_->encodeHeaders(test_response_headers, true));
+
+  // 202 is not allowed.
+  test_response_headers.setStatus("202");
+  EXPECT_CALL(encoder_callbacks_, sendLocalReply(Http::Code::UnprocessableEntity, _, _, _, _));
+  ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
+            test_filter_->encodeHeaders(test_response_headers, true));
+}
+
+TEST_F(PayloadValidatorFilterTests, CheckResponsePayload) {
+  initialize(main_post_config + get_method_config + empty_200_response_config +
+             payload_for_200_response_config);
+
+  // Header decoding is necessary to select proper body validator.
+  Http::TestRequestHeaderMapImpl test_request_headers;
+  test_request_headers.setMethod(Http::Headers::get().MethodValues.Get);
+  ASSERT_EQ(Http::FilterHeadersStatus::Continue,
+            test_filter_->decodeHeaders(test_request_headers, true));
+
+  Http::TestResponseHeaderMapImpl test_response_headers;
+
+  // Send again headers, but without stream end.
+  test_response_headers.setStatus("200");
+  ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
+            test_filter_->encodeHeaders(test_response_headers, false));
+
+  // Send correct body.
+  std::string body = "{\"foo\": \"value\"}";
+  Buffer::OwnedImpl data;
+
+  data.add(body);
+
+  ASSERT_EQ(Http::FilterDataStatus::Continue, test_filter_->encodeData(data, true));
+
+  // Send incorrect body.
+  data.add("blahblah");
+  EXPECT_CALL(encoder_callbacks_, sendLocalReply(Http::Code::UnprocessableEntity, _, _, _, _));
+  ASSERT_EQ(Http::FilterDataStatus::StopIterationNoBuffer, test_filter_->encodeData(data, true));
 }
 
 } // namespace PayloadValidator
