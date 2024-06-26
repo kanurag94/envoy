@@ -78,11 +78,11 @@ struct PayloadValidatorStats {
 /**
  * Config registration for http payload validator filter.
  */
-class FilterConfig
-    : public Common::FactoryBase<
-          envoy::extensions::filters::http::payload_validator::v3::PayloadValidator> {
+class FilterConfig {
 public:
-  FilterConfig() : FactoryBase("envoy.filters.http.payload_validator") {}
+  FilterConfig(const std::string& stats_prefix, Stats::Scope& scope)
+      : scope_(scope),
+        stats_(std::make_shared<PayloadValidatorStats>(generateStats(stats_prefix, scope_))) {}
   json_validator& getValidator() { return validator_; }
 
   bool
@@ -94,23 +94,32 @@ public:
     stats_ = std::make_shared<PayloadValidatorStats>(generateStats(prefix, scope));
   }
 
-private:
-  Http::FilterFactoryCb createFilterFactoryFromProtoTyped(
-      const envoy::extensions::filters::http::payload_validator::v3::PayloadValidator& proto_config,
-      const std::string& stats_prefix, Server::Configuration::FactoryContext& context) override;
-
-  static PayloadValidatorStats generateStats(const std::string& prefix, Stats::Scope& scope) {
+  PayloadValidatorStats generateStats(const std::string& prefix, Stats::Scope& scope) {
     return PayloadValidatorStats{ALL_PAYLOAD_VALIDATOR_STATS(POOL_COUNTER_PREFIX(scope, prefix))};
   }
 
   Stats::Scope& scope_;
   std::shared_ptr<PayloadValidatorStats> stats_;
+  std::string stat_prefix_;
+  // PayloadValidatorStats stats_;
 
 public:
   // TODO: this cannot be public.
   json_validator validator_;
   absl::flat_hash_map<std::string, std::shared_ptr<Operation>> operations_;
   std::shared_ptr<Operation> empty_{};
+};
+
+class FilterConfigFactory
+    : public Common::FactoryBase<
+          envoy::extensions::filters::http::payload_validator::v3::PayloadValidator> {
+public:
+  FilterConfigFactory() : FactoryBase("envoy.filters.http.payload_validator") {}
+
+private:
+  Http::FilterFactoryCb createFilterFactoryFromProtoTyped(
+      const envoy::extensions::filters::http::payload_validator::v3::PayloadValidator& proto_config,
+      const std::string& stats_prefix, Server::Configuration::FactoryContext& context) override;
 };
 
 } // namespace PayloadValidator

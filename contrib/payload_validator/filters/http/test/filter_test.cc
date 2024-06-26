@@ -70,9 +70,6 @@ public:
     TestUtility::loadFromYaml(config_string, config);
 
     // Create filter's config.
-    filter_config_ = std::make_unique<FilterConfig>();
-    filter_config_->processConfig(config);
-
     // Create filter based on the created config.
     // std::shared_ptr<PayloadValidatorStats> stats =
     // std::make_shared<PayloadValidatorStats>(generateStats("test_stats", store_.mockScope()));
@@ -82,7 +79,16 @@ public:
         .WillByDefault(testing::ReturnRef(requests_validation_failed_));
     ON_CALL(store_, counter("test_stats.requests_validation_failed_enforced"))
         .WillByDefault(testing::ReturnRef(requests_validation_failed_enforced_));
-    filter_config_->setStatsStoreForTest("test_stats", scope_);
+    ON_CALL(store_, counter("test_stats.responses_validated"))
+        .WillByDefault(testing::ReturnRef(responses_validated_));
+    ON_CALL(store_, counter("test_stats.responses_validation_failed"))
+        .WillByDefault(testing::ReturnRef(responses_validation_failed_));
+    ON_CALL(store_, counter("test_stats.responses_validation_failed_enforced"))
+        .WillByDefault(testing::ReturnRef(responses_validation_failed_enforced_));
+    //  filter_config_->setStatsStoreForTest("test_stats", scope_);
+
+    filter_config_ = std::make_unique<FilterConfig>("test_stats", scope_);
+    filter_config_->processConfig(config);
 
     test_filter_ = std::make_unique<Filter>(*filter_config_ /*, stats*/);
     test_filter_->setDecoderFilterCallbacks(decoder_callbacks_);
@@ -109,6 +115,9 @@ public:
   Stats::MockCounter requests_validated_;
   Stats::MockCounter requests_validation_failed_;
   Stats::MockCounter requests_validation_failed_enforced_;
+  Stats::MockCounter responses_validated_;
+  Stats::MockCounter responses_validation_failed_;
+  Stats::MockCounter responses_validation_failed_enforced_;
 };
 
 // Test configuration of requests
@@ -281,15 +290,25 @@ TEST_F(PayloadValidatorFilterTests, RejectGetWithPayload) {
   ASSERT_EQ(Http::FilterDataStatus::StopIterationNoBuffer, test_filter_->decodeData(data, true));
 }
 
-TEST_F(PayloadValidatorFilterTests, RejectInvalidHttpReponse) {
-  initialize(main_post_config);
-  Http::TestResponseHeaderMapImpl test_headers;
-  // Remove the status header.
-  test_headers.removeStatus();
+TEST_F(PayloadValidatorFilterTests, RejectInvalidHttpResponse) {
+  initialize(main_post_config + get_method_config);
+  // Header decoding is necessary to select proper body validator.
+  Http::TestRequestHeaderMapImpl test_request_headers;
+  test_request_headers.setMethod(Http::Headers::get().MethodValues.Get);
+  EXPECT_CALL(requests_validated_, inc());
+  ASSERT_EQ(Http::FilterHeadersStatus::Continue,
+            test_filter_->decodeHeaders(test_request_headers, true));
 
+  Http::TestResponseHeaderMapImpl test_response_headers;
+  // Remove the status header.
+  test_response_headers.removeStatus();
+
+  EXPECT_CALL(responses_validated_, inc());
+  EXPECT_CALL(responses_validation_failed_, inc());
+  EXPECT_CALL(responses_validation_failed_enforced_, inc());
   EXPECT_CALL(encoder_callbacks_, sendLocalReply(Http::Code::UnprocessableEntity, _, _, _, _));
   ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
-            test_filter_->encodeHeaders(test_headers, true));
+            test_filter_->encodeHeaders(test_response_headers, true));
 }
 
 TEST_F(PayloadValidatorFilterTests, PassAllResponsesIfNothingConfigured) {
@@ -305,6 +324,8 @@ TEST_F(PayloadValidatorFilterTests, PassAllResponsesIfNothingConfigured) {
   Http::TestResponseHeaderMapImpl test_response_headers;
   test_response_headers.setStatus("404");
 
+  // Counter should not be updated when no response code is configured.
+  EXPECT_CALL(responses_validated_, inc()).Times(0);
   ASSERT_EQ(Http::FilterHeadersStatus::Continue,
             test_filter_->encodeHeaders(test_response_headers, true));
 }
@@ -323,11 +344,15 @@ TEST_F(PayloadValidatorFilterTests, PassOnlyConfiguredResponses) {
 
   // 200 response is allowed, because it is configured.
   test_response_headers.setStatus("200");
+  EXPECT_CALL(responses_validated_, inc());
   ASSERT_EQ(Http::FilterHeadersStatus::Continue,
             test_filter_->encodeHeaders(test_response_headers, true));
 
   // 202 is not allowed.
   test_response_headers.setStatus("202");
+  EXPECT_CALL(responses_validated_, inc());
+  EXPECT_CALL(responses_validation_failed_, inc());
+  EXPECT_CALL(responses_validation_failed_enforced_, inc());
   EXPECT_CALL(encoder_callbacks_, sendLocalReply(Http::Code::UnprocessableEntity, _, _, _, _));
   ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
             test_filter_->encodeHeaders(test_response_headers, true));
@@ -348,6 +373,7 @@ TEST_F(PayloadValidatorFilterTests, CheckResponsePayload) {
 
   // Send again headers, but without stream end.
   test_response_headers.setStatus("200");
+  EXPECT_CALL(responses_validated_, inc());
   ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
             test_filter_->encodeHeaders(test_response_headers, false));
 
@@ -361,6 +387,8 @@ TEST_F(PayloadValidatorFilterTests, CheckResponsePayload) {
 
   // Send incorrect body.
   data.add("blahblah");
+  EXPECT_CALL(responses_validation_failed_, inc());
+  EXPECT_CALL(responses_validation_failed_enforced_, inc());
   EXPECT_CALL(encoder_callbacks_, sendLocalReply(Http::Code::UnprocessableEntity, _, _, _, _));
   ASSERT_EQ(Http::FilterDataStatus::StopIterationNoBuffer, test_filter_->encodeData(data, true));
 }

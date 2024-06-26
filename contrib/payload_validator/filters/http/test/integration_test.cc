@@ -19,7 +19,7 @@ public:
 name: envoy.filters.http.payload_validator
 typed_config:
   "@type": type.googleapis.com/envoy.extensions.filters.http.payload_validator.v3.PayloadValidator
-  stat_prefix: payload_validator
+  stat_prefix: test_p_v
   operations:
   - method: POST  
     request_max_size: 25
@@ -77,7 +77,20 @@ TEST_P(PayloadValidatorIntegrationTest, RejectedRequests) {
   EXPECT_TRUE(response->complete());
   EXPECT_THAT(response->headers(), Http::HttpStatusIs(std::get<2>(param)));
 
-  test_server_->waitForCounterEq("payload_validator.payload_validator.requests_validated", 1);
+  test_server_->waitForCounterEq("http.config_test.payload_validator.test_p_v.requests_validated",
+                                 1);
+  if (std::get<2>(param) != "200") {
+    EXPECT_EQ(
+        1, test_server_
+               ->counter("http.config_test.payload_validator.test_p_v.requests_validation_failed")
+               ->value());
+    EXPECT_EQ(
+        1,
+        test_server_
+            ->counter(
+                "http.config_test.payload_validator.test_p_v.requests_validation_failed_enforced")
+            ->value());
+  }
 }
 
 // The following test cases test payload validation of requests.
@@ -118,6 +131,7 @@ public:
 name: envoy.filters.http.payload_validator
 typed_config:
   "@type": type.googleapis.com/envoy.extensions.filters.http.payload_validator.v3.PayloadValidator
+  stat_prefix: test_p_v
   operations:
   - method: GET  
     responses:
@@ -174,6 +188,21 @@ TEST_P(ResponseValidatorIntegrationTest, RejectedRequests) {
 
   EXPECT_TRUE(response->complete());
   EXPECT_THAT(response->headers(), Http::HttpStatusIs(std::get<3>(param)));
+
+  test_server_->waitForCounterEq("http.config_test.payload_validator.test_p_v.responses_validated",
+                                 1);
+  if (response->headers().getStatusValue() != "200") {
+    EXPECT_EQ(
+        1, test_server_
+               ->counter("http.config_test.payload_validator.test_p_v.responses_validation_failed")
+               ->value());
+    EXPECT_EQ(
+        1,
+        test_server_
+            ->counter(
+                "http.config_test.payload_validator.test_p_v.responses_validation_failed_enforced")
+            ->value());
+  }
 }
 
 // The following test cases test payload validation of requests.

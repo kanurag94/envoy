@@ -131,6 +131,7 @@ Http::FilterHeadersStatus Filter::encodeHeaders(Http::ResponseHeaderMap& headers
   if (local_reply_) {
     return Http::FilterHeadersStatus::Continue;
   }
+
   // get Status header
   absl::optional<uint64_t> status = Http::Utility::getResponseStatusOrNullopt(headers);
 
@@ -139,6 +140,9 @@ Http::FilterHeadersStatus Filter::encodeHeaders(Http::ResponseHeaderMap& headers
     encoder_callbacks_->sendLocalReply(Http::Code::UnprocessableEntity,
                                        "Incorrect response. Status header is missing.", nullptr,
                                        absl::nullopt, "");
+    config_.stats()->responses_validated_.inc();
+    config_.stats()->responses_validation_failed_.inc();
+    config_.stats()->responses_validation_failed_enforced_.inc();
     return Http::FilterHeadersStatus::StopIteration;
   }
 
@@ -146,11 +150,14 @@ Http::FilterHeadersStatus Filter::encodeHeaders(Http::ResponseHeaderMap& headers
     return Http::FilterHeadersStatus::Continue;
   }
 
+  config_.stats()->responses_validated_.inc();
   const auto& it = current_operation_->responses_.find(status.value());
 
   if (it == current_operation_->responses_.end()) {
     local_reply_ = true;
     // Return method not allowed.
+    config_.stats()->responses_validation_failed_.inc();
+    config_.stats()->responses_validation_failed_enforced_.inc();
     encoder_callbacks_->sendLocalReply(
         Http::Code::UnprocessableEntity,
         fmt::format("Not allowed response status code: {}", status.value()), nullptr, absl::nullopt,
@@ -162,7 +169,8 @@ Http::FilterHeadersStatus Filter::encodeHeaders(Http::ResponseHeaderMap& headers
     if ((*it).second != nullptr) {
       // Body is not present but is required.
       local_reply_ = true;
-      // Return method not allowed.
+      config_.stats()->responses_validation_failed_.inc();
+      config_.stats()->responses_validation_failed_enforced_.inc();
       encoder_callbacks_->sendLocalReply(Http::Code::UnprocessableEntity,
                                          "Response body is missing", nullptr, absl::nullopt, "");
       return Http::FilterHeadersStatus::StopIteration;
@@ -204,6 +212,8 @@ Http::FilterDataStatus Filter::encodeData(Buffer::Instance& data, bool stream_en
 
     if (!result.first) {
       local_reply_ = true;
+      config_.stats()->responses_validation_failed_.inc();
+      config_.stats()->responses_validation_failed_enforced_.inc();
       encoder_callbacks_->sendLocalReply(Http::Code::UnprocessableEntity,
                                          std::string("Request validation failed: ") +
                                              result.second.value(),

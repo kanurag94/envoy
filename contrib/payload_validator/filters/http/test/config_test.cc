@@ -1,6 +1,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "test/mocks/stats/mocks.h"
 #include "test/test_common/utility.h"
 
 #include "contrib/payload_validator/filters/http/source/config.h"
@@ -36,8 +37,10 @@ TEST(PayloadValidatorConfigTests, RequestOnlyConfig) {
   envoy::extensions::filters::http::payload_validator::v3::PayloadValidator config;
   TestUtility::loadFromYaml(yaml, config);
 
+  testing::NiceMock<Stats::MockStore> store;
+  Stats::MockScope& scope{store.mockScope()};
   // Create filter's config.
-  FilterConfig filter_config;
+  FilterConfig filter_config("test_stats", scope);
   ASSERT_TRUE(filter_config.processConfig(config));
 
   // For POST, there should be a validator.
@@ -114,8 +117,10 @@ TEST(PayloadValidatorConfigTests, RequestAndResponseConfig) {
   envoy::extensions::filters::http::payload_validator::v3::PayloadValidator config;
   TestUtility::loadFromYaml(yaml, config);
 
+  testing::NiceMock<Stats::MockStore> store;
+  Stats::MockScope& scope{store.mockScope()};
   // Create filter's config.
-  FilterConfig filter_config;
+  FilterConfig filter_config("test_stats", scope);
   ASSERT_TRUE(filter_config.processConfig(config));
 
   // For POST, there should be a validator.
@@ -135,8 +140,10 @@ TEST(PayloadValidatorConfigTests, InvalidConfigs) {
   envoy::extensions::filters::http::payload_validator::v3::PayloadValidator config;
   // TestUtility::loadFromYaml(yaml, config);
 
+  testing::NiceMock<Stats::MockStore> store;
+  Stats::MockScope& scope{store.mockScope()};
   // Create filter's config.
-  FilterConfig filter_config;
+  FilterConfig filter_config("test_stats", scope);
   ASSERT_FALSE(filter_config.processConfig(config));
 }
 
@@ -199,8 +206,10 @@ TEST(PayloadValidatorConfigTests, InvalidConfigs1) {
   envoy::extensions::filters::http::payload_validator::v3::PayloadValidator config;
   TestUtility::loadFromYaml(yaml, config);
 
+  testing::NiceMock<Stats::MockStore> store;
+  Stats::MockScope& scope{store.mockScope()};
   // Create filter's config.
-  FilterConfig filter_config;
+  FilterConfig filter_config("test_stats", scope);
   ASSERT_FALSE(filter_config.processConfig(config));
 }
 

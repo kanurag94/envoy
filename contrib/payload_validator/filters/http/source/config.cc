@@ -74,6 +74,8 @@ bool FilterConfig::processConfig(
   // bool request_found = false;
   // bool response_found = false;
 
+  stat_prefix_ = config.stat_prefix();
+
   if (config.operations().empty()) {
     return false;
   }
@@ -141,11 +143,17 @@ const std::shared_ptr<Operation> FilterConfig::getOperation(const std::string& n
   return (*it).second;
 }
 
-Http::FilterFactoryCb FilterConfig::createFilterFactoryFromProtoTyped(
+Http::FilterFactoryCb FilterConfigFactory::createFilterFactoryFromProtoTyped(
     const envoy::extensions::filters::http::payload_validator::v3::PayloadValidator& config,
     const std::string& stats_prefix, Server::Configuration::FactoryContext& context) {
 
-  if (!processConfig(config)) {
+  std::cerr << stats_prefix << "\n";
+  std::string final_prefix =
+      fmt::format("{}payload_validator.{}", stats_prefix, config.stat_prefix());
+  std::shared_ptr<FilterConfig> filter_config =
+      std::make_shared<FilterConfig>(final_prefix, context.scope());
+
+  if (!filter_config->processConfig(config)) {
     throw EnvoyException(fmt::format("Invalid payload validator config: {}", "TODO"));
   }
 
@@ -160,17 +168,15 @@ Http::FilterFactoryCb FilterConfig::createFilterFactoryFromProtoTyped(
     }
 #endif
 
-  scop stats_ =
-      std::make_shared<PayloadValidatorStats>(generateStats(stats_prefix, context.scope()));
-  return [this](Http::FilterChainFactoryCallbacks& callbacks) -> void {
-    callbacks.addStreamFilter(std::make_shared<Filter>(*this));
+  return [filter_config](Http::FilterChainFactoryCallbacks& callbacks) -> void {
+    callbacks.addStreamFilter(std::make_shared<Filter>(*filter_config));
   };
 }
 
 /**
  * Static registration for the http payload validator filter. @see RegisterFactory.
  */
-LEGACY_REGISTER_FACTORY(FilterConfig, Server::Configuration::NamedHttpFilterConfigFactory,
+LEGACY_REGISTER_FACTORY(FilterConfigFactory, Server::Configuration::NamedHttpFilterConfigFactory,
                         "envoy.http_payload_validator_filter");
 
 } // namespace PayloadValidator
