@@ -143,7 +143,7 @@ const std::shared_ptr<Operation> FilterConfig::getOperation(const std::string& n
 
 Http::FilterFactoryCb FilterConfig::createFilterFactoryFromProtoTyped(
     const envoy::extensions::filters::http::payload_validator::v3::PayloadValidator& config,
-    const std::string& /* stats_prefix*/, Server::Configuration::FactoryContext& /*context*/) {
+    const std::string& stats_prefix, Server::Configuration::FactoryContext& context) {
 
   if (!processConfig(config)) {
     throw EnvoyException(fmt::format("Invalid payload validator config: {}", "TODO"));
@@ -160,9 +160,10 @@ Http::FilterFactoryCb FilterConfig::createFilterFactoryFromProtoTyped(
     }
 #endif
 
-  auto stats = std::make_shared<PayloadValidatorStats>();
-  return [this, stats](Http::FilterChainFactoryCallbacks& callbacks) -> void {
-    callbacks.addStreamFilter(std::make_shared<Filter>(*this, stats));
+  scop stats_ =
+      std::make_shared<PayloadValidatorStats>(generateStats(stats_prefix, context.scope()));
+  return [this](Http::FilterChainFactoryCallbacks& callbacks) -> void {
+    callbacks.addStreamFilter(std::make_shared<Filter>(*this));
   };
 }
 

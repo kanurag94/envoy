@@ -5,6 +5,10 @@
 
 #include "envoy/server/filter_config.h"
 
+//#include "envoy/stats/scope.h"
+//#include "envoy/stats/stats.h"
+#include "envoy/stats/stats_macros.h"
+
 #include "source/extensions/filters/http/common/factory_base.h"
 
 #include "contrib/envoy/extensions/filters/http/payload_validator/v3/payload_validator.pb.h"
@@ -59,6 +63,18 @@ public:
 private:
 };
 
+#define ALL_PAYLOAD_VALIDATOR_STATS(COUNTER)                                                       \
+  COUNTER(requests_validated)                                                                      \
+  COUNTER(requests_validation_failed)                                                              \
+  COUNTER(requests_validation_failed_enforced)                                                     \
+  COUNTER(responses_validated)                                                                     \
+  COUNTER(responses_validation_failed)                                                             \
+  COUNTER(responses_validation_failed_enforced)
+
+struct PayloadValidatorStats {
+  ALL_PAYLOAD_VALIDATOR_STATS(GENERATE_COUNTER_STRUCT)
+};
+
 /**
  * Config registration for http payload validator filter.
  */
@@ -73,13 +89,25 @@ public:
   processConfig(const envoy::extensions::filters::http::payload_validator::v3::PayloadValidator&
                     proto_config);
   const std::shared_ptr<Operation> getOperation(const std::string& name) const;
+  std::shared_ptr<PayloadValidatorStats> stats() const { return stats_; }
+  void setStatsStoreForTest(const std::string& prefix, Stats::Scope& scope) {
+    stats_ = std::make_shared<PayloadValidatorStats>(generateStats(prefix, scope));
+  }
 
 private:
   Http::FilterFactoryCb createFilterFactoryFromProtoTyped(
       const envoy::extensions::filters::http::payload_validator::v3::PayloadValidator& proto_config,
       const std::string& stats_prefix, Server::Configuration::FactoryContext& context) override;
 
+  static PayloadValidatorStats generateStats(const std::string& prefix, Stats::Scope& scope) {
+    return PayloadValidatorStats{ALL_PAYLOAD_VALIDATOR_STATS(POOL_COUNTER_PREFIX(scope, prefix))};
+  }
+
+  Stats::Scope& scope_;
+  std::shared_ptr<PayloadValidatorStats> stats_;
+
 public:
+  // TODO: this cannot be public.
   json_validator validator_;
   absl::flat_hash_map<std::string, std::shared_ptr<Operation>> operations_;
   std::shared_ptr<Operation> empty_{};

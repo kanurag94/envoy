@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 
 #include "test/mocks/http/mocks.h"
+#include "test/mocks/stats/mocks.h"
 #include "test/test_common/utility.h"
 
 #include "contrib/payload_validator/filters/http/source/config.h"
@@ -65,31 +66,6 @@ const std::string payload_for_200_response_config = R"EOF(
 class PayloadValidatorFilterTests : public ::testing::Test {
 public:
   void initialize(const std::string config_string) {
-#if 0
-    const std::string yaml = R"EOF(
-  operations:
-  - method: POST  
-    request_max_size: 100
-    request_body:
-      schema: |
-        {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "title": "A person",
-            "properties": {
-                "foo": {
-                    "type": "string"
-                }
-            },
-            "required": [
-                "foo"
-            ],
-            "type": "object"
-        }
-  - method: GET  
-    request_max_size: 0
-  )EOF";
-#endif
-
     envoy::extensions::filters::http::payload_validator::v3::PayloadValidator config;
     TestUtility::loadFromYaml(config_string, config);
 
@@ -98,9 +74,17 @@ public:
     filter_config_->processConfig(config);
 
     // Create filter based on the created config.
-    std::shared_ptr<PayloadValidatorStats> stats = std::make_shared<PayloadValidatorStats>();
+    // std::shared_ptr<PayloadValidatorStats> stats =
+    // std::make_shared<PayloadValidatorStats>(generateStats("test_stats", store_.mockScope()));
+    ON_CALL(store_, counter("test_stats.requests_validated"))
+        .WillByDefault(testing::ReturnRef(requests_validated_));
+    ON_CALL(store_, counter("test_stats.requests_validation_failed"))
+        .WillByDefault(testing::ReturnRef(requests_validation_failed_));
+    ON_CALL(store_, counter("test_stats.requests_validation_failed_enforced"))
+        .WillByDefault(testing::ReturnRef(requests_validation_failed_enforced_));
+    filter_config_->setStatsStoreForTest("test_stats", scope_);
 
-    test_filter_ = std::make_unique<Filter>(*filter_config_, stats);
+    test_filter_ = std::make_unique<Filter>(*filter_config_ /*, stats*/);
     test_filter_->setDecoderFilterCallbacks(decoder_callbacks_);
     ON_CALL(decoder_callbacks_, decodingBuffer()).WillByDefault([this]() {
       return buffered_ ? &data_ : nullptr;
@@ -120,6 +104,11 @@ public:
   std::unique_ptr<Filter> test_filter_;
   Buffer::OwnedImpl data_;
   bool buffered_{false};
+  testing::NiceMock<Stats::MockStore> store_;
+  Stats::MockScope& scope_{store_.mockScope()};
+  Stats::MockCounter requests_validated_;
+  Stats::MockCounter requests_validation_failed_;
+  Stats::MockCounter requests_validation_failed_enforced_;
 };
 
 // Test configuration of requests
@@ -129,18 +118,28 @@ TEST_F(PayloadValidatorFilterTests, ValidateRequestMethod) {
 
   // POST with subsequent body should be accepted (without calling sendLocalReply).
   test_headers.setMethod(Http::Headers::get().MethodValues.Post);
+  EXPECT_CALL(requests_validated_, inc());
   ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
             test_filter_->decodeHeaders(test_headers, false));
+
   // Header-only POST should be rejected. Body must be present.
+  EXPECT_CALL(requests_validated_, inc());
+  EXPECT_CALL(requests_validation_failed_, inc());
+  EXPECT_CALL(requests_validation_failed_enforced_, inc());
   EXPECT_CALL(decoder_callbacks_, sendLocalReply(Http::Code::UnprocessableEntity, _, _, _, _));
   ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
             test_filter_->decodeHeaders(test_headers, true));
+
   // Header-only GET should be accepted
   test_headers.setMethod(Http::Headers::get().MethodValues.Get);
+  EXPECT_CALL(requests_validated_, inc());
   ASSERT_EQ(Http::FilterHeadersStatus::Continue, test_filter_->decodeHeaders(test_headers, true));
 
   // PUT should not be accepted. Callback to send local reply should be called.
   test_headers.setMethod(Http::Headers::get().MethodValues.Put);
+  EXPECT_CALL(requests_validated_, inc());
+  EXPECT_CALL(requests_validation_failed_, inc());
+  EXPECT_CALL(requests_validation_failed_enforced_, inc());
   EXPECT_CALL(decoder_callbacks_, sendLocalReply(Http::Code::MethodNotAllowed, _, _, _, _));
   ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
             test_filter_->decodeHeaders(test_headers, true));
@@ -152,6 +151,7 @@ TEST_F(PayloadValidatorFilterTests, ValidateRequestBody) {
 
   // Header decoding is necessary to select proper body validator.
   test_headers.setMethod(Http::Headers::get().MethodValues.Post);
+  EXPECT_CALL(requests_validated_, inc());
   ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
             test_filter_->decodeHeaders(test_headers, false));
 
@@ -163,12 +163,14 @@ TEST_F(PayloadValidatorFilterTests, ValidateRequestBody) {
 
   ASSERT_EQ(Http::FilterDataStatus::Continue, test_filter_->decodeData(data, true));
 
-  // Incorect body - foo should be a string.
+  // Incorrect body - foo should be a string.
   body = "{\"foo\": 100}";
   data.drain(data.length());
   data.add(body);
 
   EXPECT_CALL(decoder_callbacks_, sendLocalReply(Http::Code::UnprocessableEntity, _, _, _, _));
+  EXPECT_CALL(requests_validation_failed_, inc());
+  EXPECT_CALL(requests_validation_failed_enforced_, inc());
   ASSERT_EQ(Http::FilterDataStatus::StopIterationNoBuffer, test_filter_->decodeData(data, true));
 }
 
@@ -178,6 +180,7 @@ TEST_F(PayloadValidatorFilterTests, ValidateChunkedRequestBody) {
 
   // Header decoding is necessary to select proper body validator.
   test_headers.setMethod(Http::Headers::get().MethodValues.Post);
+  EXPECT_CALL(requests_validated_, inc());
   ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
             test_filter_->decodeHeaders(test_headers, false));
 
@@ -199,6 +202,7 @@ TEST_F(PayloadValidatorFilterTests, RejectTooLargeBody) {
 
   // Header decoding is necessary to select proper body validator.
   test_headers.setMethod(Http::Headers::get().MethodValues.Post);
+  EXPECT_CALL(requests_validated_, inc());
   ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
             test_filter_->decodeHeaders(test_headers, false));
 
@@ -212,10 +216,14 @@ TEST_F(PayloadValidatorFilterTests, RejectTooLargeBody) {
   }
 
   EXPECT_CALL(decoder_callbacks_, sendLocalReply(Http::Code::PayloadTooLarge, _, _, _, _));
+  EXPECT_CALL(requests_validation_failed_, inc());
+  EXPECT_CALL(requests_validation_failed_enforced_, inc());
   // Should be rejected even when stream is not finished.
   ASSERT_EQ(Http::FilterDataStatus::StopIterationNoBuffer, test_filter_->decodeData(data, false));
   // should be rejected when stream is finished.
   EXPECT_CALL(decoder_callbacks_, sendLocalReply(Http::Code::PayloadTooLarge, _, _, _, _));
+  EXPECT_CALL(requests_validation_failed_, inc());
+  EXPECT_CALL(requests_validation_failed_enforced_, inc());
   ASSERT_EQ(Http::FilterDataStatus::StopIterationNoBuffer, test_filter_->decodeData(data, true));
 }
 
@@ -225,6 +233,7 @@ TEST_F(PayloadValidatorFilterTests, RejectTooLargeBodyChunked) {
 
   // Header decoding is necessary to select proper body validator.
   test_headers.setMethod(Http::Headers::get().MethodValues.Post);
+  EXPECT_CALL(requests_validated_, inc());
   ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
             test_filter_->decodeHeaders(test_headers, false));
 
@@ -243,8 +252,12 @@ TEST_F(PayloadValidatorFilterTests, RejectTooLargeBodyChunked) {
   data.add(body);
   // Next attempt to buffer chunk of data should be rejected, as it exceeds maximum.
   EXPECT_CALL(decoder_callbacks_, sendLocalReply(Http::Code::PayloadTooLarge, _, _, _, _));
+  EXPECT_CALL(requests_validation_failed_, inc());
+  EXPECT_CALL(requests_validation_failed_enforced_, inc());
   ASSERT_EQ(Http::FilterDataStatus::StopIterationNoBuffer, test_filter_->decodeData(data, false));
   EXPECT_CALL(decoder_callbacks_, sendLocalReply(Http::Code::PayloadTooLarge, _, _, _, _));
+  EXPECT_CALL(requests_validation_failed_, inc());
+  EXPECT_CALL(requests_validation_failed_enforced_, inc());
   ASSERT_EQ(Http::FilterDataStatus::StopIterationNoBuffer, test_filter_->decodeData(data, true));
 }
 
@@ -254,6 +267,7 @@ TEST_F(PayloadValidatorFilterTests, RejectGetWithPayload) {
 
   // Header decoding is necessary to select proper body validator.
   test_headers.setMethod(Http::Headers::get().MethodValues.Get);
+  EXPECT_CALL(requests_validated_, inc());
   ASSERT_EQ(Http::FilterHeadersStatus::Continue, test_filter_->decodeHeaders(test_headers, true));
 
   // Body does not have to be json. It is rejected before passing to json parser.
@@ -262,11 +276,9 @@ TEST_F(PayloadValidatorFilterTests, RejectGetWithPayload) {
   data.add(body);
 
   EXPECT_CALL(decoder_callbacks_, sendLocalReply(Http::Code::PayloadTooLarge, _, _, _, _));
+  EXPECT_CALL(requests_validation_failed_, inc());
+  EXPECT_CALL(requests_validation_failed_enforced_, inc());
   ASSERT_EQ(Http::FilterDataStatus::StopIterationNoBuffer, test_filter_->decodeData(data, true));
-}
-
-TEST_F(PayloadValidatorFilterTests, SendLocalDoesNotRunValidator) {
-  // TODO: make sure that send local skips any processing on receive path.
 }
 
 TEST_F(PayloadValidatorFilterTests, RejectInvalidHttpReponse) {
@@ -286,6 +298,7 @@ TEST_F(PayloadValidatorFilterTests, PassAllResponsesIfNothingConfigured) {
   // Header decoding is necessary to select proper body validator.
   Http::TestRequestHeaderMapImpl test_request_headers;
   test_request_headers.setMethod(Http::Headers::get().MethodValues.Get);
+  EXPECT_CALL(requests_validated_, inc());
   ASSERT_EQ(Http::FilterHeadersStatus::Continue,
             test_filter_->decodeHeaders(test_request_headers, true));
 
@@ -302,6 +315,7 @@ TEST_F(PayloadValidatorFilterTests, PassOnlyConfiguredResponses) {
   // Header decoding is necessary to select proper body validator.
   Http::TestRequestHeaderMapImpl test_request_headers;
   test_request_headers.setMethod(Http::Headers::get().MethodValues.Get);
+  EXPECT_CALL(requests_validated_, inc());
   ASSERT_EQ(Http::FilterHeadersStatus::Continue,
             test_filter_->decodeHeaders(test_request_headers, true));
 
@@ -326,6 +340,7 @@ TEST_F(PayloadValidatorFilterTests, CheckResponsePayload) {
   // Header decoding is necessary to select proper body validator.
   Http::TestRequestHeaderMapImpl test_request_headers;
   test_request_headers.setMethod(Http::Headers::get().MethodValues.Get);
+  EXPECT_CALL(requests_validated_, inc());
   ASSERT_EQ(Http::FilterHeadersStatus::Continue,
             test_filter_->decodeHeaders(test_request_headers, true));
 

@@ -37,5 +37,6 @@ message TransactionDescription {
 
 // Payload Validator filter config.
 message PayloadValidator {
-  repeated TransactionDescription operations = 1 [(validate.rules).repeated = {min_items: 1}];
+  string stat_prefix = 1 [(validate.rules).string = {min_len: 1}];
+  repeated TransactionDescription operations = 2 [(validate.rules).repeated = {min_items: 1}];
 }

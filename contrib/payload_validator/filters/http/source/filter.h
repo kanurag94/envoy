@@ -5,7 +5,6 @@
 
 #include "envoy/http/filter.h"
 #include "envoy/runtime/runtime.h"
-#include "envoy/stats/scope.h"
 
 #include "contrib/payload_validator/filters/http/source/config.h"
 
@@ -14,16 +13,11 @@ namespace Extensions {
 namespace HttpFilters {
 namespace PayloadValidator {
 
-class PayloadValidatorStats {
-public:
-  PayloadValidatorStats() {}
-};
-
 /**
  */
 class Filter : public Http::StreamFilter {
 public:
-  Filter(FilterConfig& config, const std::shared_ptr<PayloadValidatorStats>&) : config_(config) {}
+  Filter(FilterConfig& config) : config_(config) {}
   // Http::StreamFilterBase
   void onDestroy() override {}
 
@@ -49,6 +43,8 @@ public:
   void setEncoderFilterCallbacks(Http::StreamEncoderFilterCallbacks& callbacks) override {
     encoder_callbacks_ = &callbacks;
   }
+
+  std::shared_ptr<PayloadValidatorStats> stats() const { return config_.stats(); }
 
 private:
   FilterConfig& config_;

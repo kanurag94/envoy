@@ -24,6 +24,8 @@ namespace HttpFilters {
 namespace PayloadValidator {
 
 Http::FilterHeadersStatus Filter::decodeHeaders(Http::RequestHeaderMap& headers, bool stream_end) {
+  // This is the beginning of processing of payloads.
+  config_.stats()->requests_validated_.inc();
   // get method header
   const absl::string_view method = headers.getMethodValue();
   const auto& it = config_.operations_.find(method);
@@ -34,6 +36,8 @@ Http::FilterHeadersStatus Filter::decodeHeaders(Http::RequestHeaderMap& headers,
     local_reply_ = true;
     decoder_callbacks_->sendLocalReply(Http::Code::MethodNotAllowed, "", nullptr, absl::nullopt,
                                        "");
+    config_.stats()->requests_validation_failed_.inc();
+    config_.stats()->requests_validation_failed_enforced_.inc();
     return Http::FilterHeadersStatus::StopIteration;
   }
 
@@ -46,6 +50,8 @@ Http::FilterHeadersStatus Filter::decodeHeaders(Http::RequestHeaderMap& headers,
       local_reply_ = true;
       decoder_callbacks_->sendLocalReply(Http::Code::UnprocessableEntity, "Payload body is missing",
                                          nullptr, absl::nullopt, "");
+      config_.stats()->requests_validation_failed_.inc();
+      config_.stats()->requests_validation_failed_enforced_.inc();
       return Http::FilterHeadersStatus::StopIteration;
     };
     return Http::FilterHeadersStatus::Continue;
@@ -79,6 +85,8 @@ Http::FilterDataStatus Filter::decodeData(Buffer::Instance& data, bool stream_en
         fmt::format("Request validation failed. Payload exceeds {} bytes",
                     req_validator->maxSize()),
         nullptr, absl::nullopt, "");
+    config_.stats()->requests_validation_failed_.inc();
+    config_.stats()->requests_validation_failed_enforced_.inc();
     return Http::FilterDataStatus::StopIterationNoBuffer;
   }
 
@@ -105,6 +113,8 @@ Http::FilterDataStatus Filter::decodeData(Buffer::Instance& data, bool stream_en
                                          std::string("Request validation failed: ") +
                                              result.second.value(),
                                          nullptr, absl::nullopt, "");
+      config_.stats()->requests_validation_failed_.inc();
+      config_.stats()->requests_validation_failed_enforced_.inc();
       return Http::FilterDataStatus::StopIterationNoBuffer;
     }
   }
