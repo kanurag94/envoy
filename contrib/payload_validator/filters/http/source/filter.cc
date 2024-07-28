@@ -31,6 +31,8 @@ Http::FilterHeadersStatus Filter::decodeHeaders(Http::RequestHeaderMap& headers,
   const auto& it = config_.operations_.find(method);
   local_reply_ = false;
 
+  ENVOY_LOG(debug, "Received {} request", method);
+
   if (it == config_.operations_.end()) {
     // Return method not allowed.
     local_reply_ = true;
@@ -215,7 +217,7 @@ Http::FilterDataStatus Filter::encodeData(Buffer::Instance& data, bool stream_en
       config_.stats()->responses_validation_failed_.inc();
       config_.stats()->responses_validation_failed_enforced_.inc();
       encoder_callbacks_->sendLocalReply(Http::Code::UnprocessableEntity,
-                                         std::string("Request validation failed: ") +
+                                         std::string("Response validation failed: ") +
                                              result.second.value(),
                                          nullptr, absl::nullopt, "");
       return Http::FilterDataStatus::StopIterationNoBuffer;

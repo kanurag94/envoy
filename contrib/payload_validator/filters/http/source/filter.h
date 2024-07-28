@@ -15,7 +15,8 @@ namespace PayloadValidator {
 
 /**
  */
-class Filter : public Http::StreamFilter {
+class Filter : public Http::StreamFilter,
+public Logger::Loggable<Logger::Id::payload_validator> {
 public:
   Filter(FilterConfig& config) : config_(config) {}
   // Http::StreamFilterBase

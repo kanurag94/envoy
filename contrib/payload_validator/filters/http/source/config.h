@@ -101,7 +101,6 @@ public:
   Stats::Scope& scope_;
   std::shared_ptr<PayloadValidatorStats> stats_;
   std::string stat_prefix_;
-  // PayloadValidatorStats stats_;
 
 public:
   // TODO: this cannot be public.
