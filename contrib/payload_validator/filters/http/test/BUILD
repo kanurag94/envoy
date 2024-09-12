@@ -30,6 +30,17 @@ envoy_cc_test(
 )
 
 envoy_cc_test(
+    name = "validator_tests",
+    srcs = [
+        "validator_test.cc",
+    ],
+    deps = [
+        "//contrib/payload_validator/filters/http/source:payload_validator_filter_lib",
+        "//test/mocks/http:http_mocks",
+    ],
+)
+
+envoy_cc_test(
     name = "integration_tests",
     srcs = [
         "integration_test.cc",

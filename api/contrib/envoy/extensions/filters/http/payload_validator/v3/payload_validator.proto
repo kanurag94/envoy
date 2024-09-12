@@ -23,6 +23,18 @@ message PayloadDescription {
     string schema = 2;
 }
 
+enum ParameterLocation {
+  QUERY = 0;
+  PATH = 1;
+}
+
+message Parameter {
+    string name = 1 [(validate.rules).string = {min_len: 1}];
+    ParameterLocation in = 2 [(validate.rules).enum = {defined_only: true}];
+    google.protobuf.BoolValue required = 3;
+    string schema = 4 [(validate.rules).string = {min_len: 5}];
+}
+
 message ResponseDescription {
     type.HttpStatus  http_status = 1 [(validate.rules).message = {required: true}];
     PayloadDescription response_body = 2;
@@ -30,10 +42,12 @@ message ResponseDescription {
 
 message TransactionDescription {
        config.core.v3.RequestMethod method = 1 [(validate.rules).enum = {defined_only: true}];
-       PayloadDescription request_body = 2;
-       google.protobuf.UInt32Value request_max_size = 3;
-       repeated ResponseDescription responses = 4;
+       repeated Parameter parameters = 2;
+       PayloadDescription request_body = 3;
+       google.protobuf.UInt32Value request_max_size = 4;
+       repeated ResponseDescription responses = 5;
 }
+
 
 // Payload Validator filter config.
 message PayloadValidator {

@@ -13,6 +13,7 @@
 
 #include "contrib/envoy/extensions/filters/http/payload_validator/v3/payload_validator.pb.h"
 #include "contrib/envoy/extensions/filters/http/payload_validator/v3/payload_validator.pb.validate.h"
+#include "contrib/payload_validator/filters/http/source/validator.h"
 
 using nlohmann::json_schema::json_validator;
 
@@ -57,6 +58,7 @@ public:
   const std::unique_ptr<PayloadDescription>& getRequestValidator() const { return request_; }
   const std::shared_ptr<PayloadDescription> getResponseValidator(uint32_t code) const;
 
+  absl::flat_hash_map<std::string, std::unique_ptr<ParamValidator>> params_;
   std::unique_ptr<PayloadDescription> request_;
   absl::flat_hash_map</*code*/ uint32_t, std::shared_ptr<PayloadDescription>> responses_;
 

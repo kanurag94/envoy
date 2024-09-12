@@ -37,6 +37,7 @@ bool JSONPayloadDescription::initialize(const std::string& schema) {
 
   active_ = true;
   validator_.set_root_schema(schema_as_json);
+
   return true;
 }
 
@@ -117,6 +118,52 @@ bool FilterConfig::processConfig(
         new_operation->responses_.emplace(code, nullptr);
       }
     }
+#if 0
+  std::string url_schema = R"EOF(
+  {
+  "type": "object",
+  "properties": {
+    "admin": {
+        "type": "string",
+        "enum": ["json", "xml", "yaml"]
+    }
+  }
+  }
+  )EOF";
+  std::string url_schema = R"EOF(
+  {
+        "type": "string",
+        "enum": ["json", "xml", "yaml"]
+  }
+  )EOF";
+    std::string param_name = "admin";
+#endif
+
+    // Add params to be verified for this operation.
+    for (const auto& parameter : operation.parameters()) {
+      if (parameter.in() ==
+          envoy::extensions::filters::http::payload_validator::v3::ParameterLocation::QUERY) {
+        std::unique_ptr<ParamValidator> param_validator =
+            std::make_unique<ParamValidator>(parameter.name());
+        param_validator->initialize(parameter.schema());
+
+        if (parameter.has_required()) {
+          param_validator->required(parameter.required().value());
+        }
+
+        new_operation->params_.emplace(parameter.name(), std::move(param_validator));
+        std::cerr << parameter.name() << "\n";
+      }
+    }
+
+#if 0
+    auto param_validator = std::make_unique<ParamValidator>(param_name);
+    if (!param_validator->initialize(url_schema)) {
+      ASSERT(false);
+      return false;
+    }
+    new_operation->params_.emplace("admin", std::move(param_validator));
+#endif
 
     std::string method = envoy::config::core::v3::RequestMethod_Name(operation.method());
     operations_.emplace(method, std::move(new_operation));

@@ -14,6 +14,7 @@
 #include "source/common/http/utility.h"
 
 #include "absl/container/fixed_array.h"
+#include "fmt/format.h"
 
 using nlohmann::json;
 using nlohmann::json_schema::json_validator;
@@ -46,6 +47,48 @@ Http::FilterHeadersStatus Filter::decodeHeaders(Http::RequestHeaderMap& headers,
   // Store the pointer to the description of request and response associated with the received
   // method.
   current_operation_ = (*it).second;
+
+  // TEST
+  const auto result = validateParams(current_operation_->params_, headers.getPathValue());
+  if (!result.first) {
+    local_reply_ = true;
+    decoder_callbacks_->sendLocalReply(Http::Code::UnprocessableEntity, result.second.value(),
+                                       nullptr, absl::nullopt, "");
+    config_.stats()->requests_validation_failed_.inc();
+    config_.stats()->requests_validation_failed_enforced_.inc();
+    return Http::FilterHeadersStatus::StopIteration;
+  }
+  // Assume that the value has been extracted from URL.
+  // Create a simple json payload.
+  // Get the URL and look for beginning of params.
+
+#if 0
+  std::string to_test_format = R"EOF(
+  {
+    "value": %s
+  }  
+  )EOF";
+  std::string to_test = "{\"" + std::string(param_name) + "\":\"" + std::string(param_value) + "\"}";
+  //std::string to_test = fmt::format("{'value': {}}", param_value);
+  std::cerr << "JSON TO TEST " << to_test << "\n";
+
+  json schema_as_json;
+  try {
+    schema_as_json = json::parse(to_test);
+  } catch (...) {
+    ASSERT(false);
+  }
+  //auto& req_validator = current_operation_->request_;
+  try {
+  (*param_validator).second->validate(schema_as_json);
+    // No error.
+  } catch (const std::exception& e) {
+    std::cerr << "URL param does not match the schema, here is why: " << e.what() << "\n";
+    ASSERT(false);
+  }
+#endif
+  // for (auto& param : current_operation_->params_)
+  //  TEST
 
   if (stream_end) {
     if (current_operation_->request_->active()) {

@@ -135,6 +135,55 @@ TEST(PayloadValidatorConfigTests, RequestAndResponseConfig) {
   ASSERT_TRUE(operation->getResponseValidator(205) == nullptr);
 }
 
+TEST(PayloadValidatorConfigTests, RequestWithParams) {
+  const std::string yaml = R"EOF(
+  operations:
+  - method: GET  
+    parameters:
+    - name: "param1"
+      in: QUERY
+      required: true
+      schema: |
+        {
+            "type": "string"
+        }
+    - name: "param2"
+      in: QUERY
+      required: false
+      schema: |
+        {
+            "type": "integer"
+        }
+  )EOF";
+
+  envoy::extensions::filters::http::payload_validator::v3::PayloadValidator config;
+  TestUtility::loadFromYaml(yaml, config);
+
+  testing::NiceMock<Stats::MockStore> store;
+  Stats::MockScope& scope{store.mockScope()};
+  // Create filter's config.
+  FilterConfig filter_config("test_stats", scope);
+  ASSERT_TRUE(filter_config.processConfig(config));
+
+  auto& operation = filter_config.getOperation("GET");
+  ASSERT_TRUE(operation != nullptr);
+
+  const auto& params = operation->params_;
+  ASSERT_EQ(params.size(), 2);
+
+  // First param.
+  auto it = params.find("param1");
+  ASSERT_TRUE(it != params.end());
+
+  // Second param.
+  it = params.find("param2");
+  ASSERT_TRUE(it != params.end());
+
+  // Non-existing param
+  it = params.find("param3");
+  ASSERT_TRUE(it == params.end());
+}
+
 TEST(PayloadValidatorConfigTests, InvalidConfigs) {
   // const std::string yaml = "";
   envoy::extensions::filters::http::payload_validator::v3::PayloadValidator config;

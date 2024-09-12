@@ -15,8 +15,7 @@ namespace PayloadValidator {
 
 /**
  */
-class Filter : public Http::StreamFilter,
-public Logger::Loggable<Logger::Id::payload_validator> {
+class Filter : public Http::StreamFilter, public Logger::Loggable<Logger::Id::payload_validator> {
 public:
   Filter(FilterConfig& config) : config_(config) {}
   // Http::StreamFilterBase
@@ -46,6 +45,8 @@ public:
   }
 
   std::shared_ptr<PayloadValidatorStats> stats() const { return config_.stats(); }
+
+  //  std::pair<bool, absl::optional<std::string>> validateParams(absl::string_view path);
 
 private:
   FilterConfig& config_;

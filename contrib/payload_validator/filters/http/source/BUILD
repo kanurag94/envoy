@@ -14,10 +14,12 @@ envoy_cc_contrib_extension(
     srcs = [
         "config.cc",
         "filter.cc",
+        "validator.cc",
     ],
     hdrs = [
         "config.h",
         "filter.h",
+        "validator.h",
     ],
     external_deps = [
         "json_schema_validator",

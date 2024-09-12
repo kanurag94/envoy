@@ -63,7 +63,7 @@ const std::string payload_for_200_response_config = R"EOF(
           }
   )EOF";
 
-class PayloadValidatorFilterTests : public ::testing::Test {
+class PayloadValidatorFilterTestsBase {
 public:
   void initialize(const std::string config_string) {
     envoy::extensions::filters::http::payload_validator::v3::PayloadValidator config;
@@ -119,6 +119,9 @@ public:
   Stats::MockCounter responses_validation_failed_;
   Stats::MockCounter responses_validation_failed_enforced_;
 };
+
+class PayloadValidatorFilterTests : public PayloadValidatorFilterTestsBase,
+                                    public ::testing::Test {};
 
 // Test configuration of requests
 TEST_F(PayloadValidatorFilterTests, ValidateRequestMethod) {
@@ -392,6 +395,98 @@ TEST_F(PayloadValidatorFilterTests, CheckResponsePayload) {
   EXPECT_CALL(encoder_callbacks_, sendLocalReply(Http::Code::UnprocessableEntity, _, _, _, _));
   ASSERT_EQ(Http::FilterDataStatus::StopIterationNoBuffer, test_filter_->encodeData(data, true));
 }
+
+const std::string query_required_param1 = R"EOF(
+    parameters: 
+    - name: "param1"
+      in: QUERY
+      required: true
+      schema: |
+        {
+          "type": "string"
+        }
+      
+  )EOF";
+
+const std::string query_required_param2 = R"EOF(
+    - name: "param2"
+      in: QUERY
+      required: true
+      schema: |
+        {
+          "type": "string"
+        }
+      
+  )EOF";
+
+const std::string query_non_required_param3 = R"EOF(
+    - name: "param3"
+      in: QUERY
+      required: false
+      schema: |
+        {
+          "type": "integer"
+        }
+      
+  )EOF";
+
+using QueryParamsTestParam = std::tuple<std::vector<std::string>, std::string, bool>;
+class QueryParamsPayloadValidatorFilterTest
+    : public PayloadValidatorFilterTestsBase,
+      // public ::testing::TestWithParam<std::tuple<std::vector<std::string>, std::string, bool>>
+      // {};
+      public ::testing::TestWithParam<QueryParamsTestParam> {};
+
+TEST_P(QueryParamsPayloadValidatorFilterTest, QueryParamsTest) {
+  std::string config = main_post_config + get_method_config;
+
+  for (const auto& param_config : std::get<0>(GetParam())) {
+    config += param_config;
+  }
+
+  initialize(config);
+
+  // Header decoding is necessary to select proper body validator.
+  Http::TestRequestHeaderMapImpl test_request_headers;
+  test_request_headers.setMethod(Http::Headers::get().MethodValues.Get);
+  test_request_headers.setPath(std::get<1>(GetParam()));
+  EXPECT_CALL(requests_validated_, inc());
+  if (!std::get<2>(GetParam())) {
+    EXPECT_CALL(requests_validation_failed_, inc());
+    EXPECT_CALL(requests_validation_failed_enforced_, inc());
+    ASSERT_EQ(Http::FilterHeadersStatus::StopIteration,
+              test_filter_->decodeHeaders(test_request_headers, true));
+  } else {
+    ASSERT_EQ(Http::FilterHeadersStatus::Continue,
+              test_filter_->decodeHeaders(test_request_headers, true));
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    QueryParamsPayloadValidatorFilterTestsSuite, QueryParamsPayloadValidatorFilterTest,
+    ::testing::Values(
+        // Unexpected param.
+        QueryParamsTestParam({}, "/url?param2=\"just_string\"", false),
+        QueryParamsTestParam({query_required_param1}, "/url", false),
+        QueryParamsTestParam({query_required_param1}, "/url?param1=\"just_string\"", true),
+        // Repeated required parameter.
+        QueryParamsTestParam({query_required_param1},
+                             "/url?param1=\"just_string\"&param1=\"just_string\"", true),
+        QueryParamsTestParam({query_required_param1},
+                             "/url?param1=\"just_string\"&param3=\"just_string\"", false),
+
+        // Required param2 is missing.
+        QueryParamsTestParam({query_required_param1, query_required_param2},
+                             "/url?param1=\"just_string\"", false),
+        QueryParamsTestParam({query_required_param1, query_required_param2},
+                             "/url?param1=\"just_string\"&param2=\"just_string\"", true),
+        QueryParamsTestParam({query_required_param1, query_required_param2,
+                              query_non_required_param3},
+                             "/url?param1=\"just_string\"&param2=\"just_string\"&param3=101", true),
+        // Optional param3 has wrong type.
+        QueryParamsTestParam(
+            {query_required_param1, query_required_param2, query_non_required_param3},
+            "/url?param1=\"just_string\"&param2=\"just_string\"&param3=\"just_string\"", false)));
 
 } // namespace PayloadValidator
 } // namespace HttpFilters
