@@ -89,6 +89,141 @@ TEST(ParamValidator, ValidateQueryParams) {
   ASSERT_FALSE(validateParams(params, "/test?param2=\"test\"&param2=\"test\"").first);
 }
 
+TEST(FixedPathSegmentValidator, SingleSegmentComparison) {
+   FixedPathSegmentValidator v("SegmeNt1", 3); 
+
+   ASSERT_TRUE(v.validate("segment1"));   
+   ASSERT_TRUE(v.validate("SeGmEnT1"));   
+   ASSERT_FALSE(v.validate("segment2"));   
+   ASSERT_FALSE(v.validate("SeGmEnT2"));   
+   EXPECT_EQ(v.segmentNumber(), 3);
+}
+
+TEST(FixedPathSegmentValidator, AllFixedPathsComparison) {
+    AllowedPaths allowed_paths;
+
+    // Path template contains only fixed segments, not templated.
+    std::vector<FixedPathSegmentValidator> fixed_segments;
+
+    // TODO: add a function which takes a templatized path and creates this config.
+    // Then add unit test to verify the whole structure layout.
+
+    std::vector<std::unique_ptr<PathTemplate>> path_templates;
+    
+    std::unique_ptr<PathTemplate> path_template = std::make_unique<PathTemplate>();
+    path_template->fixed_segments_.emplace_back("segment1", 0);
+    path_template->fixed_segments_.emplace_back("segment2", 1);
+    path_templates.push_back(std::move(path_template));
+    allowed_paths.insert({2, std::move(path_templates)});
+
+    ASSERT_TRUE(validatePath(allowed_paths, "/segment1/segment2").first);
+    ASSERT_FALSE(validatePath(allowed_paths, "/segment1").first);
+    ASSERT_FALSE(validatePath(allowed_paths, "/segment2").first);
+    ASSERT_FALSE(validatePath(allowed_paths, "/").first);
+
+    path_template = std::make_unique<PathTemplate>();
+    path_template->fixed_segments_.emplace_back("segment1", 0);
+    path_templates.push_back(std::move(path_template));
+    allowed_paths.insert({1, std::move(path_templates)});
+
+    ASSERT_TRUE(validatePath(allowed_paths, "/segment1/segment2").first);
+    ASSERT_TRUE(validatePath(allowed_paths, "/segment1").first);
+    ASSERT_FALSE(validatePath(allowed_paths, "/segment2").first);
+    ASSERT_FALSE(validatePath(allowed_paths, "/").first);
+
+    // Add empty path. 
+    path_template = std::make_unique<PathTemplate>();
+    path_template->fixed_segments_.emplace_back("", 0);
+    allowed_paths[1].push_back(std::move(path_template));
+
+    ASSERT_TRUE(validatePath(allowed_paths, "/").first);
+    // Those paths should still be accepted or denied as before.
+    ASSERT_TRUE(validatePath(allowed_paths, "/segment1/segment2").first);
+    ASSERT_TRUE(validatePath(allowed_paths, "/segment1").first);
+    ASSERT_FALSE(validatePath(allowed_paths, "/segment2").first);
+
+    
+    // Remove "/segment1/segment2" path.
+    allowed_paths.erase(2);
+    ASSERT_TRUE(validatePath(allowed_paths, "/").first);
+    ASSERT_FALSE(validatePath(allowed_paths, "/segment1/segment2").first);
+    ASSERT_TRUE(validatePath(allowed_paths, "/segment1").first);
+}
+
+TEST(TemplatedPathSegmentValidation, AllTemplatedPathsComparison) {
+    AllowedPaths allowed_paths;
+
+    // Path contains only templated segments.
+    std::vector<TemplatedPathSegmentValidator> templated_segments;
+
+    // TODO: add a function which takes a templatized path and creates this config.
+    std::vector<std::unique_ptr<PathTemplate>> path_templates;
+
+    std::unique_ptr<PathTemplate> path_template = std::make_unique<PathTemplate>();
+    path_template->templated_segments_.push_back(std::make_unique<TemplatedPathSegmentValidator>("segment1", 0));
+    // segment1 should be integer.
+    ASSERT_TRUE(path_template->templated_segments_.back()->initialize("{\"type\": \"integer\"}"));
+    path_templates.push_back(std::move(path_template));
+    allowed_paths.insert({1, std::move(path_templates)});
+
+    ASSERT_TRUE(validatePath(allowed_paths, "/123").first);
+    ASSERT_FALSE(validatePath(allowed_paths, "/\"segment1\"").first);
+
+    // Add another template to match string to match /{integer}/{string}
+    path_template = std::make_unique<PathTemplate>();
+    path_template->templated_segments_.push_back(std::make_unique<TemplatedPathSegmentValidator>("segment2", 0));
+    // segment2 should be integer.
+    ASSERT_TRUE(path_template->templated_segments_.back()->initialize("{\"type\": \"integer\"}"));
+    path_template->templated_segments_.push_back(std::make_unique<TemplatedPathSegmentValidator>("segment3", 1));
+    // segment3 should be string.
+    ASSERT_TRUE(path_template->templated_segments_.back()->initialize("{\"type\": \"string\"}"));
+    
+    path_templates.push_back(std::move(path_template));
+    allowed_paths.insert({2, std::move(path_templates)});
+
+    // Correct format. integer and string.
+    ASSERT_TRUE(validatePath(allowed_paths, "/123/\"test\"").first);
+    // Incorrect format. string and string.
+    ASSERT_FALSE(validatePath(allowed_paths, "/\"part1\"/\"part2\"").first);
+    // Incorrect path. 3 segments.
+    ASSERT_FALSE(validatePath(allowed_paths, "/\"part1\"/\"part2\"/\"part3\"").first);
+}
+
+TEST(TemplatedPathSegmentValidation, MixedPathsComparison) {
+    AllowedPaths allowed_paths;
+
+    // Path contains only templated segments.
+    std::vector<TemplatedPathSegmentValidator> templated_segments;
+
+    // TODO: add a function which takes a templatized path and creates this config.
+    std::vector<std::unique_ptr<PathTemplate>> path_templates;
+
+    // Construct metchers for partially templated path /{segment1}/segment2/segment3/{segment4}
+    // where segment1 should be a string and segment4 should be integer.
+    std::unique_ptr<PathTemplate> path_template = std::make_unique<PathTemplate>();
+    path_template->templated_segments_.push_back(std::make_unique<TemplatedPathSegmentValidator>("segment1", 0));
+    // segment1 should be integer.
+    ASSERT_TRUE(path_template->templated_segments_.back()->initialize("{\"type\": \"string\"}"));
+
+    path_template->templated_segments_.push_back(std::make_unique<TemplatedPathSegmentValidator>("segment4", 3));
+    // segment3 should be string.
+    ASSERT_TRUE(path_template->templated_segments_.back()->initialize("{\"type\": \"integer\"}"));
+
+    // Fixed segments.
+    path_template->fixed_segments_.emplace_back("segment2", 1);
+    path_template->fixed_segments_.emplace_back("segment3", 2);
+
+    path_templates.push_back(std::move(path_template));
+    allowed_paths.insert({4, std::move(path_templates)});
+
+    ASSERT_FALSE(validatePath(allowed_paths, "/123").first);
+    ASSERT_FALSE(validatePath(allowed_paths, "/\"segment1\"").first);
+    ASSERT_TRUE(validatePath(allowed_paths, "/\"segment1\"/segment2/segment3/123").first);
+    ASSERT_FALSE(validatePath(allowed_paths, "/\"segment1\"/segment2/segment3/\"segment4\"").first);
+    ASSERT_FALSE(validatePath(allowed_paths, "/123/segment2/segment3/\"segment4\"").first);
+    ASSERT_FALSE(validatePath(allowed_paths, "/\"segment1\"/segment2/segment33/123").first);
+}
+
 } // namespace PayloadValidator
 } // namespace HttpFilters
 } // namespace Extensions

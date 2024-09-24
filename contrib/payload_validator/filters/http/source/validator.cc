@@ -183,6 +183,164 @@ std::pair<bool, absl::optional<std::string>> validateParams(
   return std::make_pair<bool, absl::optional<std::string>>(true, std::nullopt);
 }
 
+
+bool TemplatedPathSegmentValidator::initialize(const std::string& schema) {
+  // Create json schema which consists of param name and param expected schema.
+  std::string param_schema = R"EOF(
+  {
+  "type": "object",
+  "properties": {
+    ")EOF" + segment_name_ +
+                             "\":" + schema + "}}";
+
+  //std::cerr << param_schema << "\n";
+
+  // TODO: check if the schema is integer or string.
+
+  return initializeValidator(param_schema);
+}
+
+std::pair<bool, absl::optional<std::string>>
+TemplatedPathSegmentValidator::validate(absl::string_view param_value) {
+  // Create a JSON object based on parameter's value.
+  // std::string to_test = "{\"" + std::string(param_name_) + "\":\"" + std::string(param_value) +
+  // "\"}";
+  // TODO: if schema is integer, do not add quotes to the value. If it is a string, add quotes.
+  std::string to_test = "{\"" + std::string(segment_name_) + "\":" + std::string(param_value) + "}";
+  std::cerr << to_test << "\n";
+
+  json param_as_json;
+  try {
+    param_as_json = json::parse(to_test);
+  } catch (...) {
+    // TODO: This should never fail as the string to validate is created by the programmer.
+    // Check what happens if the param_value or param_name contains invalid characters
+    // like " or { or }.
+    ASSERT(false);
+  }
+
+  try {
+    validator_.validate(param_as_json);
+    // No error.
+  } catch (const std::exception& e) {
+    return std::make_pair<bool, absl::optional<std::string>>(false,
+                                                             absl::optional<std::string>(e.what()));
+    std::cerr << "URL param does not match the schema, here is why: " << e.what() << "\n";
+    // ASSERT(false);
+  }
+  return std::make_pair<bool, absl::optional<std::string>>(true, std::nullopt);
+}
+
+std::pair<bool, absl::optional<std::string>>
+validatePath(const AllowedPaths& allowed_paths, absl::string_view path) {
+
+    path.remove_prefix(1);
+    // Break the path into segments separeted by forward slash.
+    std::vector<absl::string_view> segments = absl::StrSplit(path, '/');
+
+    std::cerr << segments.size() << "\n";
+    const auto& templates = allowed_paths.find(segments.size());
+    if (templates == allowed_paths.end()) {
+      return std::make_pair<bool, absl::optional<std::string>>(
+          false,
+          absl::optional<std::string>(fmt::format("Path is not configured")));
+    }
+
+    for (const auto& templ : (*templates).second) {
+        // Fixed path segments must match.
+        bool fixed_segments_match = true;
+        // Iterate over all fixed segments.
+        for (auto& fixed_segment : templ->fixed_segments_) {
+            std::cerr << segments[fixed_segment.segmentNumber()] << "\n"; 
+            if (!fixed_segment.validate(segments[fixed_segment.segmentNumber()])) {
+                fixed_segments_match = false;
+                break;
+            }
+        }
+
+        if (!fixed_segments_match) {
+            // try next template.
+            continue;
+        }
+
+        // Now try templated segments.
+        //bool templated_segments_match = true;
+        for (auto& templated_segment : templ->templated_segments_) {
+            std::cerr << segments[templated_segment->segmentNumber()] << "\n"; 
+            auto result = templated_segment->validate(segments[templated_segment->segmentNumber()]);
+           // if (!templated_segment.validate(segments[templated_segment.segmentNumber()].first)) {
+            if (!result.first) {
+            std::cerr << result.second.value() << "\n"; 
+                return result;
+         //       templated_segments_match = false;
+         //       break;
+            }
+        }
+
+      return std::make_pair<bool, absl::optional<std::string>>(
+          true,
+          absl::nullopt);
+    }
+
+          return std::make_pair<bool, absl::optional<std::string>>(
+            false,
+            absl::optional<std::string>(fmt::format("Path is not allowed")));
+}
+
+std::pair<PathValidationResult, absl::optional<std::string>>
+checkPath(const PathTemplate& path_template, const std::vector<absl::string_view>& path_segments) {
+    
+    ASSERT(path_segments.size() == (path_template.fixed_segments_.size() + path_template.templated_segments_.size()));
+
+
+#if 0
+    path.remove_prefix(1);
+    // Break the path into segments separeted by forward slash.
+    std::vector<absl::string_view> segments = absl::StrSplit(path, '/');
+
+    std::cerr << segments.size() << "\n";
+    const auto& templates = allowed_paths.find(segments.size());
+    if (templates == allowed_paths.end()) {
+      return std::make_pair<bool, absl::optional<std::string>>(
+          false,
+          absl::optional<std::string>(fmt::format("Path is not configured")));
+    }
+#endif
+
+        //bool fixed_segments_match = true;
+        // Iterate over all fixed segments.
+        for (auto& fixed_segment : path_template.fixed_segments_) {
+            std::cerr << path_segments[fixed_segment.segmentNumber()] << "\n"; 
+            if (!fixed_segment.validate(path_segments[fixed_segment.segmentNumber()])) {
+          return std::make_pair<PathValidationResult, absl::optional<std::string>>(
+            PathValidationResult::NOT_MATCHED,
+            absl::optional<std::string>(fmt::format("Fixed parts of template did not match.")));
+            }
+        }
+
+        // Fixed segments of the path matched. 
+        // Now try templated segments.
+        //bool templated_segments_match = true;
+        for (auto& templated_segment : path_template.templated_segments_) {
+            std::cerr << path_segments[templated_segment->segmentNumber()] << "\n"; 
+            auto result = templated_segment->validate(path_segments[templated_segment->segmentNumber()]);
+           // if (!templated_segment.validate(segments[templated_segment.segmentNumber()].first)) {
+            if (!result.first) {
+            std::cerr << result.second.value() << "\n"; 
+          return std::make_pair<PathValidationResult, absl::optional<std::string>>(
+            PathValidationResult::MATCHED_WITH_ERRORS,
+            std::move(result.second));
+         //       templated_segments_match = false;
+         //       break;
+            }
+        }
+
+      return std::make_pair<PathValidationResult, absl::optional<std::string>>(
+          PathValidationResult::MATCHED,
+          absl::nullopt);
+}
+
+
 } // namespace PayloadValidator
 } // namespace HttpFilters
 } // namespace Extensions

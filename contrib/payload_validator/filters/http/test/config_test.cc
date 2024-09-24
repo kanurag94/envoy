@@ -14,24 +14,26 @@ namespace PayloadValidator {
 // Test configuration of requests
 TEST(PayloadValidatorConfigTests, RequestOnlyConfig) {
   const std::string yaml = R"EOF(
-  operations:
-  - method: POST  
-    request_body:
-      schema: |
-        {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "title": "A person",
-            "properties": {
-                "foo": {
-                    "type": "string"
-                }
-            },
-            "required": [
-                "foo"
-            ],
-            "type": "object"
-        }
-  - method: GET  
+  paths:
+  - path: "/"
+    operations:
+    - method: POST  
+      request_body:
+        schema: |
+          {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "title": "A person",
+              "properties": {
+                  "foo": {
+                      "type": "string"
+                  }
+              },
+              "required": [
+                  "foo"
+              ],
+              "type": "object"
+          }
+    - method: GET  
   )EOF";
 
   envoy::extensions::filters::http::payload_validator::v3::PayloadValidator config;
@@ -60,27 +62,11 @@ TEST(PayloadValidatorConfigTests, RequestOnlyConfig) {
 
 TEST(PayloadValidatorConfigTests, RequestAndResponseConfig) {
   const std::string yaml = R"EOF(
-  operations:
-  - method: POST  
-    request_body:
-      schema: |
-        {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "title": "A person",
-            "properties": {
-                "foo": {
-                    "type": "string"
-                }
-            },
-            "required": [
-                "foo"
-            ],
-            "type": "object"
-        }
-    responses:
-    - http_status:
-        code: 200
-      response_body:
+  paths:
+  - path: "/"
+    operations:
+    - method: POST  
+      request_body:
         schema: |
           {
               "$schema": "http://json-schema.org/draft-07/schema#",
@@ -95,23 +81,41 @@ TEST(PayloadValidatorConfigTests, RequestAndResponseConfig) {
               ],
               "type": "object"
           }
-    - http_status:
-        code: 202
-      response_body:
-        schema: |
-          {
-              "$schema": "http://json-schema.org/draft-07/schema#",
-              "title": "A person",
-              "properties": {
-                  "foo": {
-                      "type": "string"
-                  }
-              },
-              "required": [
-                  "foo"
-              ],
-              "type": "object"
-          }
+      responses:
+      - http_status:
+          code: 200
+        response_body:
+          schema: |
+            {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "title": "A person",
+                "properties": {
+                    "foo": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "foo"
+                ],
+                "type": "object"
+            }
+      - http_status:
+          code: 202
+        response_body:
+          schema: |
+            {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "title": "A person",
+                "properties": {
+                    "foo": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "foo"
+                ],
+                "type": "object"
+            }
   )EOF";
 
   envoy::extensions::filters::http::payload_validator::v3::PayloadValidator config;
@@ -137,23 +141,25 @@ TEST(PayloadValidatorConfigTests, RequestAndResponseConfig) {
 
 TEST(PayloadValidatorConfigTests, RequestWithParams) {
   const std::string yaml = R"EOF(
-  operations:
-  - method: GET  
-    parameters:
-    - name: "param1"
-      in: QUERY
-      required: true
-      schema: |
-        {
-            "type": "string"
-        }
-    - name: "param2"
-      in: QUERY
-      required: false
-      schema: |
-        {
-            "type": "integer"
-        }
+  paths:
+  - path: "/"
+    operations:
+    - method: GET  
+      parameters:
+      - name: "param1"
+        in: QUERY
+        required: true
+        schema: |
+          {
+              "type": "string"
+          }
+      - name: "param2"
+        in: QUERY
+        required: false
+        schema: |
+          {
+              "type": "integer"
+          }
   )EOF";
 
   envoy::extensions::filters::http::payload_validator::v3::PayloadValidator config;
@@ -184,6 +190,55 @@ TEST(PayloadValidatorConfigTests, RequestWithParams) {
   ASSERT_TRUE(it == params.end());
 }
 
+TEST(PayloadValidatorConfigTests, RequestWithPathParams) {
+  const std::string yaml = R"EOF(
+  paths:
+  - path: "/users/{id}"
+    operations:
+    - method: GET  
+      parameters:
+      - name: "param1"
+        in: QUERY
+        required: true
+        schema: |
+          {
+              "type": "string"
+          }
+      - name: "id"
+        in: PATH
+        schema: |
+          {
+              "type": "integer"
+          }
+  )EOF";
+
+  envoy::extensions::filters::http::payload_validator::v3::PayloadValidator config;
+  TestUtility::loadFromYaml(yaml, config);
+
+  testing::NiceMock<Stats::MockStore> store;
+  Stats::MockScope& scope{store.mockScope()};
+  // Create filter's config.
+  FilterConfig filter_config("test_stats", scope);
+  ASSERT_TRUE(filter_config.processConfig(config));
+
+  auto& operation = filter_config.getOperation("GET");
+  ASSERT_TRUE(operation != nullptr);
+
+  const auto& params = operation->params_;
+  ASSERT_EQ(params.size(), 2);
+
+  // First param.
+  auto it = params.find("param1");
+  ASSERT_TRUE(it != params.end());
+
+  // Second param.
+  it = params.find("param2");
+  ASSERT_TRUE(it != params.end());
+
+  // Non-existing param
+  it = params.find("param3");
+  ASSERT_TRUE(it == params.end());
+}
 TEST(PayloadValidatorConfigTests, InvalidConfigs) {
   // const std::string yaml = "";
   envoy::extensions::filters::http::payload_validator::v3::PayloadValidator config;
@@ -199,26 +254,11 @@ TEST(PayloadValidatorConfigTests, InvalidConfigs) {
 TEST(PayloadValidatorConfigTests, InvalidConfigs1) {
   // const std::string yaml = "";
   const std::string yaml = R"EOF(
-  operations:
-  - method: POST  
-    request_body:
-      schema: |
-        {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "title": "A person",
-            "properties": {
-                "foo": {
-                    "type": "string"
-            },
-            "required": [
-                "foo"
-            ],
-            "type": "object"
-        }
-    responses:
-    - http_status:
-        code: 200
-      response_body:
+  paths:
+  - path: "/"
+    operations:
+    - method: POST  
+      request_body:
         schema: |
           {
               "$schema": "http://json-schema.org/draft-07/schema#",
@@ -226,30 +266,47 @@ TEST(PayloadValidatorConfigTests, InvalidConfigs1) {
               "properties": {
                   "foo": {
                       "type": "string"
-                  }
               },
               "required": [
                   "foo"
               ],
               "type": "object"
           }
-    - http_status:
-        code: 202
-      response_body:
-        schema: |
-          {
-              "$schema": "http://json-schema.org/draft-07/schema#",
-              "title": "A person",
-              "properties": {
+      responses:
+      - http_status:
+          code: 200
+        response_body:
+          schema: |
+            {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "title": "A person",
+                "properties": {
                   "foo": {
                       "type": "string"
-                  }
-              },
-              "required": [
-                  "foo"
-              ],
-              "type": "object"
-          }
+                    }
+                },
+                "required": [
+                    "foo"
+                ],
+                "type": "object"
+            }
+      - http_status:
+          code: 202
+        response_body:
+          schema: |
+            {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "title": "A person",
+                "properties": {
+                    "foo": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "foo"
+                ],
+                "type": "object"
+            }
   )EOF";
 
   envoy::extensions::filters::http::payload_validator::v3::PayloadValidator config;

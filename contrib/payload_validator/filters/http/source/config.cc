@@ -77,12 +77,47 @@ bool FilterConfig::processConfig(
 
   stat_prefix_ = config.stat_prefix();
 
-  if (config.operations().empty()) {
+  if (config.paths().empty()) {
     return false;
   }
 
+  // Iterate over configured paths.
+  for (const auto& path : config.paths()) {
+    Path new_path;
+    absl::string_view request_path = path.path();
+    if (request_path[0] != '/') {
+        // First character must be forward slash.
+        return false;
+    }
+
+    
+    request_path.remove_prefix(1);
+    std::vector<absl::string_view> segments = absl::StrSplit(request_path, '/');
+
+    absl::flat_hash_map<absl::string_view, size_t> params_from_url;
+
+    for (size_t i = 0; i < segments.size(); i++) {
+        if (segments[i].front() == '{') {
+            if (segments[i].back() != '}') {
+                // Config should be rejected.
+                ASSERT(false);
+            }
+            segments[i].remove_prefix(1);
+            segments[i].remove_suffix(1);
+            // TODO: if it is of zero length -> reject the config.
+            if (params_from_url.find(segments[i]) != params_from_url.end()) {
+                // TODO: Handle case where a parameter name is repeated.
+                // Reject that config. 
+                ASSERT(false);
+            }
+            params_from_url.insert({segments[i], i});
+        } else {
+        new_path.path_template_.fixed_segments_.emplace_back(segments[i], i);
+        }
+    }
+    
   // iterate over configured operations.
-  for (const auto& operation : config.operations()) {
+  for (const auto& operation : path.operations()) {
     // const auto& method = operation.method();
     auto new_operation = std::make_shared<Operation>();
 
@@ -154,6 +189,26 @@ bool FilterConfig::processConfig(
         new_operation->params_.emplace(parameter.name(), std::move(param_validator));
         std::cerr << parameter.name() << "\n";
       }
+      
+      if (parameter.in() == 
+          envoy::extensions::filters::http::payload_validator::v3::ParameterLocation::PATH) {
+          
+          const auto it = params_from_url.find(parameter.name());
+          if (it == params_from_url.end()) {
+            // TODO: handle the case where param which should be in the path is not in the path as templated.
+            ASSERT(false);
+          }
+
+          new_path.path_template_.templated_segments_.push_back(std::make_unique<TemplatedPathSegmentValidator>((*it).first, (*it).second));
+          new_path.path_template_.templated_segments_.back()->initialize(parameter.schema());
+          // Remove it from list of found path params. At the end of params this list should be empty.
+          params_from_url.erase(it);
+      }
+    }
+
+    if (!params_from_url.empty()) {
+        // TODO: display the message that not all params defined in path were defined as params.
+        ASSERT(false);
     }
 
 #if 0
@@ -166,8 +221,11 @@ bool FilterConfig::processConfig(
 #endif
 
     std::string method = envoy::config::core::v3::RequestMethod_Name(operation.method());
-    operations_.emplace(method, std::move(new_operation));
+    new_path.operations_.emplace(method, std::move(new_operation));
+    
+    paths_.push_back(std::move(new_path));
   }
+    }
 
   /*
     if (!(request_found || response_found)) {
@@ -179,6 +237,7 @@ bool FilterConfig::processConfig(
 }
 
 // Find context related to method.
+#if 0
 const std::shared_ptr<Operation> FilterConfig::getOperation(const std::string& name) const {
   const auto it = operations_.find(name);
 
@@ -189,6 +248,7 @@ const std::shared_ptr<Operation> FilterConfig::getOperation(const std::string& n
 
   return (*it).second;
 }
+#endif
 
 Http::FilterFactoryCb FilterConfigFactory::createFilterFactoryFromProtoTyped(
     const envoy::extensions::filters::http::payload_validator::v3::PayloadValidator& config,

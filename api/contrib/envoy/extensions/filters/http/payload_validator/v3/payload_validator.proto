@@ -48,9 +48,14 @@ message TransactionDescription {
        repeated ResponseDescription responses = 5;
 }
 
+message PathTransactions {
+  string path = 1 [(validate.rules).string = {min_len: 1}];
+  repeated TransactionDescription operations = 2 [(validate.rules).repeated = {min_items: 1}];
+}
+
 
 // Payload Validator filter config.
 message PayloadValidator {
   string stat_prefix = 1 [(validate.rules).string = {min_len: 1}];
-  repeated TransactionDescription operations = 2 [(validate.rules).repeated = {min_items: 1}];
+  repeated PathTransactions paths = 2 [(validate.rules).repeated = {min_items: 1}];
 }

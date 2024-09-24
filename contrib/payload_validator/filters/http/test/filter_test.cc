@@ -14,39 +14,12 @@ namespace HttpFilters {
 namespace PayloadValidator {
 
 const std::string main_post_config = R"EOF(
-  operations:
-  - method: POST
-    request_max_size: 100
-    request_body:
-      schema: |
-        {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "title": "A person",
-            "properties": {
-                "foo": {
-                    "type": "string"
-                }
-            },
-            "required": [
-                "foo"
-            ],
-            "type": "object"
-        }
-  )EOF";
-
-const std::string get_method_config = R"EOF(
-  - method: GET
-    request_max_size: 0
-  )EOF";
-
-const std::string empty_200_response_config = R"EOF(
-    responses:
-    - http_status:
-        code: 200
-  )EOF";
-
-const std::string payload_for_200_response_config = R"EOF(
-      response_body:
+  paths:
+  - path: "/"
+    operations:
+    - method: POST
+      request_max_size: 100
+      request_body:
         schema: |
           {
               "$schema": "http://json-schema.org/draft-07/schema#",
@@ -61,6 +34,35 @@ const std::string payload_for_200_response_config = R"EOF(
               ],
               "type": "object"
           }
+  )EOF";
+
+const std::string get_method_config = R"EOF(
+    - method: GET
+      request_max_size: 0
+  )EOF";
+
+const std::string empty_200_response_config = R"EOF(
+      responses:
+      - http_status:
+          code: 200
+  )EOF";
+
+const std::string payload_for_200_response_config = R"EOF(
+        response_body:
+          schema: |
+            {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "title": "A person",
+                "properties": {
+                    "foo": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "foo"
+                ],
+                "type": "object"
+            }
   )EOF";
 
 class PayloadValidatorFilterTestsBase {
@@ -397,36 +399,36 @@ TEST_F(PayloadValidatorFilterTests, CheckResponsePayload) {
 }
 
 const std::string query_required_param1 = R"EOF(
-    parameters: 
-    - name: "param1"
-      in: QUERY
-      required: true
-      schema: |
-        {
-          "type": "string"
-        }
+      parameters: 
+      - name: "param1"
+        in: QUERY
+        required: true
+        schema: |
+          {
+            "type": "string"
+          }
       
   )EOF";
 
 const std::string query_required_param2 = R"EOF(
-    - name: "param2"
-      in: QUERY
-      required: true
-      schema: |
-        {
-          "type": "string"
-        }
+      - name: "param2"
+        in: QUERY
+        required: true
+        schema: |
+          {
+            "type": "string"
+          }
       
   )EOF";
 
 const std::string query_non_required_param3 = R"EOF(
-    - name: "param3"
-      in: QUERY
-      required: false
-      schema: |
-        {
-          "type": "integer"
-        }
+      - name: "param3"
+        in: QUERY
+        required: false
+        schema: |
+          {
+            "type": "integer"
+          }
       
   )EOF";
 

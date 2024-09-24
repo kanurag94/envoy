@@ -20,29 +20,31 @@ name: envoy.filters.http.payload_validator
 typed_config:
   "@type": type.googleapis.com/envoy.extensions.filters.http.payload_validator.v3.PayloadValidator
   stat_prefix: test_p_v
-  operations:
-  - method: POST  
-    request_max_size: 25
-    request_body:
-      schema: |
-        {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "title": "A person",
-            "properties": {
-                "foo": {
-                    "type": "string",
-                    "minLength": 10,
-                    "maxLength": 10
-                }
-            },
-            "required": [
-                "foo"
-            ],
-            "type": "object"
-        }
-  - method: DELETE
-  - method: PUT
-    request_max_size: 0
+  paths:
+  - path: "/"
+    operations:
+    - method: POST  
+      request_max_size: 25
+      request_body:
+        schema: |
+          {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "title": "A person",
+              "properties": {
+                  "foo": {
+                      "type": "string",
+                      "minLength": 10,
+                      "maxLength": 10
+                  }
+              },
+              "required": [
+                  "foo"
+              ],
+              "type": "object"
+          }
+    - method: DELETE
+    - method: PUT
+      request_max_size: 0
 )EOF";
     config_helper_.prependFilter(filter_config);
     initialize();
@@ -132,29 +134,31 @@ name: envoy.filters.http.payload_validator
 typed_config:
   "@type": type.googleapis.com/envoy.extensions.filters.http.payload_validator.v3.PayloadValidator
   stat_prefix: test_p_v
-  operations:
-  - method: GET  
-    responses:
-    - http_status:
-        code: 200
-      response_body:
-        schema: |
-          {
-              "$schema": "http://json-schema.org/draft-07/schema#",
-              "title": "A person",
-              "properties": {
-                  "foo": {
-                      "type": "string"
-                  }
-              },
-              "required": [
-                  "foo"
-              ],
-              "type": "object"
-          }
-  - method: DELETE
-  - method: PUT
-    request_max_size: 0
+  paths:
+  - path: "/"
+    operations:
+    - method: GET  
+      responses:
+      - http_status:
+          code: 200
+        response_body:
+          schema: |
+            {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "title": "A person",
+                "properties": {
+                    "foo": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "foo"
+                ],
+                "type": "object"
+            }
+    - method: DELETE
+    - method: PUT
+      request_max_size: 0
 )EOF";
     config_helper_.prependFilter(filter_config);
     initialize();

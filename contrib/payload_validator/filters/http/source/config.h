@@ -65,6 +65,7 @@ public:
 private:
 };
 
+
 #define ALL_PAYLOAD_VALIDATOR_STATS(COUNTER)                                                       \
   COUNTER(requests_validated)                                                                      \
   COUNTER(requests_validation_failed)                                                              \
@@ -75,6 +76,13 @@ private:
 
 struct PayloadValidatorStats {
   ALL_PAYLOAD_VALIDATOR_STATS(GENERATE_COUNTER_STRUCT)
+};
+
+struct Path {
+    // path template is matched first. If matches, operations, params and body matching
+    // follows.
+    PathTemplate path_template_;
+    absl::flat_hash_map<std::string, std::shared_ptr<Operation>> operations_;
 };
 
 /**
@@ -107,7 +115,9 @@ public:
 public:
   // TODO: this cannot be public.
   json_validator validator_;
-  absl::flat_hash_map<std::string, std::shared_ptr<Operation>> operations_;
+  //std::pair<PathTemplate, absl::flat_hash_map<std::string, std::shared_ptr<Operation>>> operations_;
+  // Allowed paths and operations.
+  std::vector<Path> paths_;
   std::shared_ptr<Operation> empty_{};
 };
 

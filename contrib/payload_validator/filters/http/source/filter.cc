@@ -27,14 +27,71 @@ namespace PayloadValidator {
 Http::FilterHeadersStatus Filter::decodeHeaders(Http::RequestHeaderMap& headers, bool stream_end) {
   // This is the beginning of processing of payloads.
   config_.stats()->requests_validated_.inc();
+
+ auto request_path = headers.getPathValue();
+
+    std::cerr << request_path << "\n";
+    request_path.remove_prefix(1);
+  auto param_start = request_path.find('?');
+  if (param_start != absl::string_view::npos) {
+        request_path.remove_suffix(request_path.length() - param_start);
+    }
+    std::cerr << request_path << "\n";
+    // Break the path into segments separeted by forward slash.
+    std::vector<absl::string_view> segments = absl::StrSplit(request_path, '/');
+
+  // Find the path matching received request.
+  
+  std::vector<Path>::iterator matched_path;
+  // This is needed for path validation.
+    std::cerr << config_.paths_.size() << "\n";
+  for (matched_path = config_.paths_.begin(); matched_path != config_.paths_.end(); matched_path++) {
+    if (segments.size() != (*matched_path).path_template_.fixed_segments_.size() + (*matched_path).path_template_.templated_segments_.size()) {
+        // different number of forward slashes in the path.
+        continue;
+    }
+    const auto path_match_result = checkPath((*matched_path).path_template_, segments); 
+    switch (path_match_result.first) {
+        case  PathValidationResult::MATCHED:
+            break;
+        case PathValidationResult::NOT_MATCHED:
+        // Try another template.
+        continue;
+        case PathValidationResult::MATCHED_WITH_ERRORS:
+    local_reply_ = true;
+    decoder_callbacks_->sendLocalReply(
+        Http::Code::UnprocessableEntity,
+        fmt::format("Validation of path syntax failed: {}", path_match_result.second.value()),
+        nullptr, absl::nullopt, "");
+    config_.stats()->requests_validation_failed_.inc();
+    config_.stats()->requests_validation_failed_enforced_.inc();
+    return Http::FilterHeadersStatus::StopIteration;
+        break;
+    }
+    // Break the for loop.
+    break;
+  }
+
+  if (matched_path == config_.paths_.end()) {
+    // None of the paths matched.
+    local_reply_ = true;
+    decoder_callbacks_->sendLocalReply(
+        Http::Code::Forbidden,
+        fmt::format("Path is not allowed"),
+        nullptr, absl::nullopt, "");
+    config_.stats()->requests_validation_failed_.inc();
+    config_.stats()->requests_validation_failed_enforced_.inc();
+    return Http::FilterHeadersStatus::StopIteration;
+    }
+
   // get method header
   const absl::string_view method = headers.getMethodValue();
-  const auto& it = config_.operations_.find(method);
+  const auto& it = (*matched_path).operations_.find(method);
   local_reply_ = false;
 
   ENVOY_LOG(debug, "Received {} request", method);
 
-  if (it == config_.operations_.end()) {
+  if (it == (*matched_path).operations_.end()) {
     // Return method not allowed.
     local_reply_ = true;
     decoder_callbacks_->sendLocalReply(Http::Code::MethodNotAllowed, "", nullptr, absl::nullopt,
