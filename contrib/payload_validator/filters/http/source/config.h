@@ -99,7 +99,7 @@ public:
         stats_(std::make_shared<PayloadValidatorStats>(generateStats(stats_prefix, scope_))) {}
   json_validator& getValidator() { return validator_; }
 
-  bool
+std::pair<bool, absl::optional<std::string>>
   processConfig(const envoy::extensions::filters::http::payload_validator::v3::PayloadValidator&
                     proto_config);
   std::shared_ptr<PayloadValidatorStats> stats() const { return stats_; }

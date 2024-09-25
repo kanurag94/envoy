@@ -45,7 +45,7 @@ TEST(PayloadValidatorConfigTests, RequestOnlyConfig) {
   Stats::MockScope& scope{store.mockScope()};
   // Create filter's config.
   FilterConfig filter_config("test_stats", scope);
-  ASSERT_TRUE(filter_config.processConfig(config));
+  ASSERT_TRUE(filter_config.processConfig(config).first);
 
   // There should be only one path configured.
   const std::vector<Path>& paths = filter_config.getPaths();
@@ -136,7 +136,7 @@ TEST(PayloadValidatorConfigTests, RequestAndResponseConfig) {
   Stats::MockScope& scope{store.mockScope()};
   // Create filter's config.
   FilterConfig filter_config("test_stats", scope);
-  ASSERT_TRUE(filter_config.processConfig(config));
+  ASSERT_TRUE(filter_config.processConfig(config).first);
 
   // There should be only one path configured.
   const std::vector<Path>& paths = filter_config.getPaths();
@@ -191,7 +191,7 @@ TEST(PayloadValidatorConfigTests, RequestWithParams) {
   Stats::MockScope& scope{store.mockScope()};
   // Create filter's config.
   FilterConfig filter_config("test_stats", scope);
-  ASSERT_TRUE(filter_config.processConfig(config));
+  ASSERT_TRUE(filter_config.processConfig(config).first);
 
   // There should be only one path configured.
   const std::vector<Path>& paths = filter_config.getPaths();
@@ -252,7 +252,7 @@ TEST(PayloadValidatorConfigTests, RequestWithPathParams) {
   Stats::MockScope& scope{store.mockScope()};
   // Create filter's config.
   FilterConfig filter_config("test_stats", scope);
-  ASSERT_TRUE(filter_config.processConfig(config));
+  ASSERT_TRUE(filter_config.processConfig(config).first);
 
   // There should be only one path configured.
   const std::vector<Path>& paths = filter_config.getPaths();
@@ -283,7 +283,7 @@ TEST(PayloadValidatorConfigTests, InvalidConfigs) {
   Stats::MockScope& scope{store.mockScope()};
   // Create filter's config.
   FilterConfig filter_config("test_stats", scope);
-  ASSERT_FALSE(filter_config.processConfig(config));
+  ASSERT_FALSE(filter_config.processConfig(config).first);
 }
 
 class WrongConfigTest : public testing::TestWithParam<std::vector<std::string>> {
@@ -307,7 +307,7 @@ std::string format = "";
   Stats::MockScope& scope{stats_store.mockScope()};
   // Create filter's config.
   FilterConfig filter_config("test_stats", scope);
-  ASSERT_FALSE(filter_config.processConfig(config));
+  ASSERT_FALSE(filter_config.processConfig(config).first);
 }
 
 // Tests passes various wrong configs to execute different paths in config

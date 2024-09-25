@@ -72,13 +72,13 @@ JSONPayloadDescription::validate(const Buffer::Instance& data) {
   return std::make_pair<bool, absl::optional<std::string>>(true, std::nullopt);
 }
 
-bool FilterConfig::processConfig(
+std::pair<bool, absl::optional<std::string>> FilterConfig::processConfig(
     const envoy::extensions::filters::http::payload_validator::v3::PayloadValidator& config) {
 
   stat_prefix_ = config.stat_prefix();
 
   if (config.paths().empty()) {
-    return false;
+    return std::make_pair<bool, absl::optional<std::string>>(false, "At least one path must be configured");;
   }
 
   // Iterate over configured paths.
@@ -87,7 +87,7 @@ bool FilterConfig::processConfig(
     absl::string_view request_path = path.path();
     if (request_path[0] != '/') {
         // First character must be forward slash.
-        return false;
+    return std::make_pair<bool, absl::optional<std::string>>(false, fmt::format("Path must start with forward slash: {}", request_path));;
     }
 
     
@@ -100,17 +100,17 @@ bool FilterConfig::processConfig(
         if (segments[i].front() == '{') {
             if (segments[i].back() != '}') {
                 // Not closed param name.
-                return false;
+    return std::make_pair<bool, absl::optional<std::string>>(false, fmt::format("Missing closing bracket for path parameter {}", segments[i]));;
             }
             segments[i].remove_prefix(1);
             segments[i].remove_suffix(1);
             if (segments[i].empty()) {
                 // Parameter name cannot be empty.
-                return false;
+    return std::make_pair<bool, absl::optional<std::string>>(false, fmt::format("Empty path parameter in {}", request_path));;
             }
             if (params_from_url.find(segments[i]) != params_from_url.end()) {
                 // Parameter name is repeated. Reject that config. 
-                return false;
+    return std::make_pair<bool, absl::optional<std::string>>(false, fmt::format("Repeated path parameter {} in {}", segments[i], request_path));;
             }
             params_from_url.insert({segments[i], i});
         } else {
@@ -131,7 +131,9 @@ bool FilterConfig::processConfig(
     if (!operation.request_body().schema().empty()) {
 
       if (!request_validator->initialize(operation.request_body().schema())) {
-        return false;
+    return std::make_pair<bool, absl::optional<std::string>>(false, fmt::format("Invalid payload schema for method {} in path {}", 
+    envoy::config::core::v3::RequestMethod_Name(operation.method()),
+request_path));
       }
     }
     new_operation->request_ = std::move(request_validator);
@@ -143,7 +145,9 @@ bool FilterConfig::processConfig(
       if (!response.response_body().schema().empty()) {
         auto response_validator = std::make_shared<JSONPayloadDescription>();
         if (!response_validator->initialize(response.response_body().schema())) {
-          return false;
+    return std::make_pair<bool, absl::optional<std::string>>(false, fmt::format("Invalid response payload schema for code {} in path {}", 
+    code,
+request_path));
         }
 
         new_operation->responses_.emplace(code, std::move(response_validator));
@@ -159,7 +163,9 @@ bool FilterConfig::processConfig(
         std::unique_ptr<ParamValidator> param_validator =
             std::make_unique<ParamValidator>(parameter.name());
         if (!param_validator->initialize(parameter.schema())) {
-            return false;
+    return std::make_pair<bool, absl::optional<std::string>>(false, fmt::format("Invalid schema for query parameter {} in path {}", 
+    parameter.name(),
+request_path));
         }
 
         if (parameter.has_required()) {
@@ -175,12 +181,16 @@ bool FilterConfig::processConfig(
           const auto it = params_from_url.find(parameter.name());
           if (it == params_from_url.end()) {
             // Defined param is not in the path as templated.
-            return false;
+    return std::make_pair<bool, absl::optional<std::string>>(false, fmt::format("Path parameter {} not found in path {}", 
+    parameter.name(),
+request_path));
           }
 
           new_path.path_template_.templated_segments_.push_back(std::make_unique<TemplatedPathSegmentValidator>((*it).first, (*it).second));
           if(!new_path.path_template_.templated_segments_.back()->initialize(parameter.schema())) {
-            return false;
+    return std::make_pair<bool, absl::optional<std::string>>(false, fmt::format("Invalid schema for path parameter {} in path {}", 
+    parameter.name(),
+request_path));
           }
           // Remove it from list of found path params. At the end of params this list should be empty.
           params_from_url.erase(it);
@@ -189,7 +199,8 @@ bool FilterConfig::processConfig(
 
     if (!params_from_url.empty()) {
         // Not all params defined in path were defined as params.
-        return false;
+    return std::make_pair<bool, absl::optional<std::string>>(false, fmt::format("Not all path parameters in path {} are defined", 
+request_path));
     }
 
     std::string method = envoy::config::core::v3::RequestMethod_Name(operation.method());
@@ -199,7 +210,9 @@ bool FilterConfig::processConfig(
     paths_.push_back(std::move(new_path));
     }
 
-  return true;
+      return std::make_pair<bool, absl::optional<std::string>>(
+          true,
+          absl::nullopt);
 }
 
 // Find context related to method.
@@ -223,8 +236,10 @@ Http::FilterFactoryCb FilterConfigFactory::createFilterFactoryFromProtoTyped(
   std::shared_ptr<FilterConfig> filter_config =
       std::make_shared<FilterConfig>(final_prefix, context.scope());
 
-  if (!filter_config->processConfig(config)) {
-    throw EnvoyException(fmt::format("Invalid payload validator config: {}", "TODO"));
+  auto result = filter_config->processConfig(config);
+
+  if (!result.first) {
+    throw EnvoyException(fmt::format("Invalid payload validator config: {}", result.second.value()));
   }
 
   return [filter_config](Http::FilterChainFactoryCallbacks& callbacks) -> void {
