@@ -92,13 +92,13 @@ private:
     uint32_t segment_number_;
 };
 
-struct PathTemplate {
+struct PathTemplateValidator {
     std::vector<FixedPathSegmentValidator> fixed_segments_;
     // TODO: does it have to be a pointer?
     std::vector<std::unique_ptr<TemplatedPathSegmentValidator>> templated_segments_;
 };
 
-using AllowedPaths = absl::flat_hash_map<uint32_t, std::vector<std::unique_ptr<PathTemplate>>>;
+using AllowedPaths = absl::flat_hash_map<uint32_t, std::vector<std::unique_ptr<PathTemplateValidator>>>;
 
 enum class PathValidationResult {
     MATCHED,
@@ -110,7 +110,7 @@ std::pair<bool, absl::optional<std::string>>
 validatePath(const AllowedPaths& allowed_paths, absl::string_view path);
 
 std::pair<PathValidationResult, absl::optional<std::string>>
-checkPath(const PathTemplate& path_template, const std::vector<absl::string_view>& path_segments);
+checkPath(const PathTemplateValidator& path_template, const std::vector<absl::string_view>& path_segments);
 
 } // namespace PayloadValidator
 } // namespace HttpFilters

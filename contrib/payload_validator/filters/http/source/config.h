@@ -78,11 +78,15 @@ struct PayloadValidatorStats {
   ALL_PAYLOAD_VALIDATOR_STATS(GENERATE_COUNTER_STRUCT)
 };
 
+// Path structure binds a top OpenAPI construct: url's path with 
+// other attributes defined for that path: method, body and query parameters.
 struct Path {
     // path template is matched first. If matches, operations, params and body matching
     // follows.
-    PathTemplate path_template_;
+    PathTemplateValidator path_template_;
+    // operations are matched only when matching path was successful.
     absl::flat_hash_map<std::string, std::shared_ptr<Operation>> operations_;
+  const std::shared_ptr<Operation> getOperation(const std::string& name) const;
 };
 
 /**
@@ -98,7 +102,6 @@ public:
   bool
   processConfig(const envoy::extensions::filters::http::payload_validator::v3::PayloadValidator&
                     proto_config);
-  const std::shared_ptr<Operation> getOperation(const std::string& name) const;
   std::shared_ptr<PayloadValidatorStats> stats() const { return stats_; }
   void setStatsStoreForTest(const std::string& prefix, Stats::Scope& scope) {
     stats_ = std::make_shared<PayloadValidatorStats>(generateStats(prefix, scope));
@@ -107,6 +110,8 @@ public:
   PayloadValidatorStats generateStats(const std::string& prefix, Stats::Scope& scope) {
     return PayloadValidatorStats{ALL_PAYLOAD_VALIDATOR_STATS(POOL_COUNTER_PREFIX(scope, prefix))};
   }
+
+  const std::vector<Path>& getPaths() const {return paths_;}
 
   Stats::Scope& scope_;
   std::shared_ptr<PayloadValidatorStats> stats_;

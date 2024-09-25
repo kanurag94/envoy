@@ -24,6 +24,8 @@ const std::shared_ptr<PayloadDescription> Operation::getResponseValidator(uint32
   return (*it).second;
 }
 
+
+// TODO: this should be moved to validator.cc/h.
 bool JSONPayloadDescription::initialize(const std::string& schema) {
   // Convert schema string to nlohmann::json object.
   json schema_as_json;
@@ -72,8 +74,6 @@ JSONPayloadDescription::validate(const Buffer::Instance& data) {
 
 bool FilterConfig::processConfig(
     const envoy::extensions::filters::http::payload_validator::v3::PayloadValidator& config) {
-  // bool request_found = false;
-  // bool response_found = false;
 
   stat_prefix_ = config.stat_prefix();
 
@@ -99,16 +99,18 @@ bool FilterConfig::processConfig(
     for (size_t i = 0; i < segments.size(); i++) {
         if (segments[i].front() == '{') {
             if (segments[i].back() != '}') {
-                // Config should be rejected.
-                ASSERT(false);
+                // Not closed param name.
+                return false;
             }
             segments[i].remove_prefix(1);
             segments[i].remove_suffix(1);
-            // TODO: if it is of zero length -> reject the config.
+            if (segments[i].empty()) {
+                // Parameter name cannot be empty.
+                return false;
+            }
             if (params_from_url.find(segments[i]) != params_from_url.end()) {
-                // TODO: Handle case where a parameter name is repeated.
-                // Reject that config. 
-                ASSERT(false);
+                // Parameter name is repeated. Reject that config. 
+                return false;
             }
             params_from_url.insert({segments[i], i});
         } else {
@@ -116,9 +118,8 @@ bool FilterConfig::processConfig(
         }
     }
     
-  // iterate over configured operations.
+  // Iterate over configured operations.
   for (const auto& operation : path.operations()) {
-    // const auto& method = operation.method();
     auto new_operation = std::make_shared<Operation>();
 
     auto request_validator = std::make_unique<JSONPayloadDescription>();
@@ -132,8 +133,6 @@ bool FilterConfig::processConfig(
       if (!request_validator->initialize(operation.request_body().schema())) {
         return false;
       }
-
-      //  request_found = true;
     }
     new_operation->request_ = std::move(request_validator);
 
@@ -148,31 +147,10 @@ bool FilterConfig::processConfig(
         }
 
         new_operation->responses_.emplace(code, std::move(response_validator));
-        //   response_found = true;
       } else {
         new_operation->responses_.emplace(code, nullptr);
       }
     }
-#if 0
-  std::string url_schema = R"EOF(
-  {
-  "type": "object",
-  "properties": {
-    "admin": {
-        "type": "string",
-        "enum": ["json", "xml", "yaml"]
-    }
-  }
-  }
-  )EOF";
-  std::string url_schema = R"EOF(
-  {
-        "type": "string",
-        "enum": ["json", "xml", "yaml"]
-  }
-  )EOF";
-    std::string param_name = "admin";
-#endif
 
     // Add params to be verified for this operation.
     for (const auto& parameter : operation.parameters()) {
@@ -180,14 +158,15 @@ bool FilterConfig::processConfig(
           envoy::extensions::filters::http::payload_validator::v3::ParameterLocation::QUERY) {
         std::unique_ptr<ParamValidator> param_validator =
             std::make_unique<ParamValidator>(parameter.name());
-        param_validator->initialize(parameter.schema());
+        if (!param_validator->initialize(parameter.schema())) {
+            return false;
+        }
 
         if (parameter.has_required()) {
           param_validator->required(parameter.required().value());
         }
 
         new_operation->params_.emplace(parameter.name(), std::move(param_validator));
-        std::cerr << parameter.name() << "\n";
       }
       
       if (parameter.in() == 
@@ -195,50 +174,36 @@ bool FilterConfig::processConfig(
           
           const auto it = params_from_url.find(parameter.name());
           if (it == params_from_url.end()) {
-            // TODO: handle the case where param which should be in the path is not in the path as templated.
-            ASSERT(false);
+            // Defined param is not in the path as templated.
+            return false;
           }
 
           new_path.path_template_.templated_segments_.push_back(std::make_unique<TemplatedPathSegmentValidator>((*it).first, (*it).second));
-          new_path.path_template_.templated_segments_.back()->initialize(parameter.schema());
+          if(!new_path.path_template_.templated_segments_.back()->initialize(parameter.schema())) {
+            return false;
+          }
           // Remove it from list of found path params. At the end of params this list should be empty.
           params_from_url.erase(it);
       }
     }
 
     if (!params_from_url.empty()) {
-        // TODO: display the message that not all params defined in path were defined as params.
-        ASSERT(false);
+        // Not all params defined in path were defined as params.
+        return false;
     }
-
-#if 0
-    auto param_validator = std::make_unique<ParamValidator>(param_name);
-    if (!param_validator->initialize(url_schema)) {
-      ASSERT(false);
-      return false;
-    }
-    new_operation->params_.emplace("admin", std::move(param_validator));
-#endif
 
     std::string method = envoy::config::core::v3::RequestMethod_Name(operation.method());
     new_path.operations_.emplace(method, std::move(new_operation));
     
-    paths_.push_back(std::move(new_path));
   }
+    paths_.push_back(std::move(new_path));
     }
-
-  /*
-    if (!(request_found || response_found)) {
-      return false;
-    }
-  */
 
   return true;
 }
 
 // Find context related to method.
-#if 0
-const std::shared_ptr<Operation> FilterConfig::getOperation(const std::string& name) const {
+const std::shared_ptr<Operation> Path::getOperation(const std::string& name) const {
   const auto it = operations_.find(name);
 
   if (it == operations_.end()) {
@@ -248,13 +213,11 @@ const std::shared_ptr<Operation> FilterConfig::getOperation(const std::string& n
 
   return (*it).second;
 }
-#endif
 
 Http::FilterFactoryCb FilterConfigFactory::createFilterFactoryFromProtoTyped(
     const envoy::extensions::filters::http::payload_validator::v3::PayloadValidator& config,
     const std::string& stats_prefix, Server::Configuration::FactoryContext& context) {
 
-  std::cerr << stats_prefix << "\n";
   std::string final_prefix =
       fmt::format("{}payload_validator.{}", stats_prefix, config.stat_prefix());
   std::shared_ptr<FilterConfig> filter_config =
@@ -263,17 +226,6 @@ Http::FilterFactoryCb FilterConfigFactory::createFilterFactoryFromProtoTyped(
   if (!filter_config->processConfig(config)) {
     throw EnvoyException(fmt::format("Invalid payload validator config: {}", "TODO"));
   }
-
-#if 0
-  // to-do. Check if schema is a valid json.
-  json schema = json::parse((config.schema()));;
-  try {
-  //validator_.set_root_schema(person_schema);  
-  validator_.set_root_schema(schema);  
-    } catch (const std::exception &e) {
-    std::cerr << "Validation of schema failed, here is why: " << e.what() << "\n";
-    }
-#endif
 
   return [filter_config](Http::FilterChainFactoryCallbacks& callbacks) -> void {
     callbacks.addStreamFilter(std::make_shared<Filter>(*filter_config));

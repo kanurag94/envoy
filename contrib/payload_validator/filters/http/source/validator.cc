@@ -288,7 +288,7 @@ validatePath(const AllowedPaths& allowed_paths, absl::string_view path) {
 }
 
 std::pair<PathValidationResult, absl::optional<std::string>>
-checkPath(const PathTemplate& path_template, const std::vector<absl::string_view>& path_segments) {
+checkPath(const PathTemplateValidator& path_template, const std::vector<absl::string_view>& path_segments) {
     
     ASSERT(path_segments.size() == (path_template.fixed_segments_.size() + path_template.templated_segments_.size()));
 
