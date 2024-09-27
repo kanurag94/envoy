@@ -22,6 +22,7 @@ namespace Extensions {
 namespace HttpFilters {
 namespace PayloadValidator {
 
+#if 0 // This should be deleted
 class PayloadDescription {
 public:
   PayloadDescription(const std::string type) : type_(type), max_size_(1024 * 1024) {}
@@ -52,15 +53,16 @@ public:
 private:
   json_validator validator_;
 };
+#endif // to be deleted
 
 struct Operation {
 public:
-  const std::unique_ptr<PayloadDescription>& getRequestValidator() const { return request_; }
-  const std::shared_ptr<PayloadDescription> getResponseValidator(uint32_t code) const;
+  const std::unique_ptr<JSONBodyValidator>& getRequestValidator() const { return request_; }
+  const std::shared_ptr<JSONBodyValidator> getResponseValidator(uint32_t code) const;
 
-  absl::flat_hash_map<std::string, std::unique_ptr<ParamValidator>> params_;
-  std::unique_ptr<PayloadDescription> request_;
-  absl::flat_hash_map</*code*/ uint32_t, std::shared_ptr<PayloadDescription>> responses_;
+  absl::flat_hash_map<std::string, std::unique_ptr<QueryParamValidator>> params_;
+  std::unique_ptr<JSONBodyValidator> request_;
+  absl::flat_hash_map</*code*/ uint32_t, std::shared_ptr<JSONBodyValidator>> responses_;
 
 private:
 };

@@ -14,7 +14,7 @@ namespace Extensions {
 namespace HttpFilters {
 namespace PayloadValidator {
 
-const std::shared_ptr<PayloadDescription> Operation::getResponseValidator(uint32_t code) const {
+const std::shared_ptr<JSONBodyValidator> Operation::getResponseValidator(uint32_t code) const {
   auto it = responses_.find(code);
 
   if (it == responses_.end()) {
@@ -24,7 +24,7 @@ const std::shared_ptr<PayloadDescription> Operation::getResponseValidator(uint32
   return (*it).second;
 }
 
-
+#if 0 // should be deleted
 // TODO: this should be moved to validator.cc/h.
 bool JSONPayloadDescription::initialize(const std::string& schema) {
   // Convert schema string to nlohmann::json object.
@@ -71,6 +71,7 @@ JSONPayloadDescription::validate(const Buffer::Instance& data) {
 
   return std::make_pair<bool, absl::optional<std::string>>(true, std::nullopt);
 }
+#endif // should be deleted
 
 std::pair<bool, absl::optional<std::string>> FilterConfig::processConfig(
     const envoy::extensions::filters::http::payload_validator::v3::PayloadValidator& config) {
@@ -122,11 +123,13 @@ std::pair<bool, absl::optional<std::string>> FilterConfig::processConfig(
   for (const auto& operation : path.operations()) {
     auto new_operation = std::make_shared<Operation>();
 
-    auto request_validator = std::make_unique<JSONPayloadDescription>();
+    auto request_validator = std::make_unique<JSONBodyValidator>();
 
+#if 0 // TODO: bring back setting max size
     if (operation.has_request_max_size()) {
       request_validator->setMaxSize(operation.request_max_size().value());
     }
+#endif
 
     if (!operation.request_body().schema().empty()) {
 
@@ -143,7 +146,7 @@ request_path));
       auto code = response.http_status().code();
 
       if (!response.response_body().schema().empty()) {
-        auto response_validator = std::make_shared<JSONPayloadDescription>();
+        auto response_validator = std::make_shared<JSONBodyValidator>();
         if (!response_validator->initialize(response.response_body().schema())) {
     return std::make_pair<bool, absl::optional<std::string>>(false, fmt::format("Invalid response payload schema for code {} in path {}", 
     code,
@@ -160,8 +163,8 @@ request_path));
     for (const auto& parameter : operation.parameters()) {
       if (parameter.in() ==
           envoy::extensions::filters::http::payload_validator::v3::ParameterLocation::QUERY) {
-        std::unique_ptr<ParamValidator> param_validator =
-            std::make_unique<ParamValidator>(parameter.name());
+        std::unique_ptr<QueryParamValidator> param_validator =
+            std::make_unique<QueryParamValidator>(parameter.name());
         if (!param_validator->initialize(parameter.schema())) {
     return std::make_pair<bool, absl::optional<std::string>>(false, fmt::format("Invalid schema for query parameter {} in path {}", 
     parameter.name(),
@@ -186,7 +189,7 @@ request_path));
 request_path));
           }
 
-          new_path.path_template_.templated_segments_.push_back(std::make_unique<TemplatedPathSegmentValidator>((*it).first, (*it).second));
+          new_path.path_template_.templated_segments_.push_back(std::make_unique<TemplatedPathSegmentValidator>(std::string((*it).first), (*it).second));
           if(!new_path.path_template_.templated_segments_.back()->initialize(parameter.schema())) {
     return std::make_pair<bool, absl::optional<std::string>>(false, fmt::format("Invalid schema for path parameter {} in path {}", 
     parameter.name(),

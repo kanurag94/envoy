@@ -175,6 +175,7 @@ Http::FilterDataStatus Filter::decodeData(Buffer::Instance& data, bool stream_en
 
   const auto* buffer = decoder_callbacks_->decodingBuffer();
 
+#if 0 // TODO: bring back checking max sie
   uint32_t total_length = data.length();
   if (buffer != nullptr) {
     total_length += buffer->length();
@@ -191,6 +192,7 @@ Http::FilterDataStatus Filter::decodeData(Buffer::Instance& data, bool stream_en
     config_.stats()->requests_validation_failed_enforced_.inc();
     return Http::FilterDataStatus::StopIterationNoBuffer;
   }
+#endif
 
   if (!stream_end) {
     decoder_callbacks_->addDecodedData(data, false);
@@ -206,6 +208,8 @@ Http::FilterDataStatus Filter::decodeData(Buffer::Instance& data, bool stream_en
   } else {
     decoder_callbacks_->addDecodedData(data, false);
   }
+
+#if 0 // TODO - bring back checking body
   if (buffer->length() != 0) {
     auto result = req_validator->validate(*buffer);
 
@@ -220,6 +224,7 @@ Http::FilterDataStatus Filter::decodeData(Buffer::Instance& data, bool stream_en
       return Http::FilterDataStatus::StopIterationNoBuffer;
     }
   }
+#endif
 
   return Http::FilterDataStatus::Continue;
 }
@@ -310,6 +315,7 @@ Http::FilterDataStatus Filter::encodeData(Buffer::Instance& data, bool stream_en
     encoder_callbacks_->addEncodedData(data, false);
   }
   if (buffer->length() != 0) {
+#if 0 // TODO - bring back validating
     auto result = response_validator_->validate(*buffer);
 
     if (!result.first) {
@@ -322,7 +328,9 @@ Http::FilterDataStatus Filter::encodeData(Buffer::Instance& data, bool stream_en
                                          nullptr, absl::nullopt, "");
       return Http::FilterDataStatus::StopIterationNoBuffer;
     }
+#endif
   }
+
 
   return Http::FilterDataStatus::Continue;
 }
