@@ -25,26 +25,21 @@ namespace HttpFilters {
 namespace PayloadValidator {
 
 Http::FilterHeadersStatus Filter::decodeHeaders(Http::RequestHeaderMap& headers, bool stream_end) {
-  // This is the beginning of processing of payloads.
   config_.stats()->requests_validated_.inc();
 
  auto request_path = headers.getPathValue();
 
-    std::cerr << request_path << "\n";
     request_path.remove_prefix(1);
   auto param_start = request_path.find('?');
   if (param_start != absl::string_view::npos) {
         request_path.remove_suffix(request_path.length() - param_start);
     }
-    std::cerr << request_path << "\n";
     // Break the path into segments separeted by forward slash.
     std::vector<absl::string_view> segments = absl::StrSplit(request_path, '/');
 
   // Find the path matching received request.
   
   std::vector<Path>::iterator matched_path;
-  // This is needed for path validation.
-    std::cerr << config_.paths_.size() << "\n";
   for (matched_path = config_.paths_.begin(); matched_path != config_.paths_.end(); matched_path++) {
     if (segments.size() != (*matched_path).path_template_.fixed_segments_.size() + (*matched_path).path_template_.templated_segments_.size()) {
         // different number of forward slashes in the path.
@@ -105,7 +100,6 @@ Http::FilterHeadersStatus Filter::decodeHeaders(Http::RequestHeaderMap& headers,
   // method.
   current_operation_ = (*it).second;
 
-  // TEST
   const auto result = validateParams(current_operation_->params_, headers.getPathValue());
   if (!result.first) {
     local_reply_ = true;
@@ -115,37 +109,6 @@ Http::FilterHeadersStatus Filter::decodeHeaders(Http::RequestHeaderMap& headers,
     config_.stats()->requests_validation_failed_enforced_.inc();
     return Http::FilterHeadersStatus::StopIteration;
   }
-  // Assume that the value has been extracted from URL.
-  // Create a simple json payload.
-  // Get the URL and look for beginning of params.
-
-#if 0
-  std::string to_test_format = R"EOF(
-  {
-    "value": %s
-  }  
-  )EOF";
-  std::string to_test = "{\"" + std::string(param_name) + "\":\"" + std::string(param_value) + "\"}";
-  //std::string to_test = fmt::format("{'value': {}}", param_value);
-  std::cerr << "JSON TO TEST " << to_test << "\n";
-
-  json schema_as_json;
-  try {
-    schema_as_json = json::parse(to_test);
-  } catch (...) {
-    ASSERT(false);
-  }
-  //auto& req_validator = current_operation_->request_;
-  try {
-  (*param_validator).second->validate(schema_as_json);
-    // No error.
-  } catch (const std::exception& e) {
-    std::cerr << "URL param does not match the schema, here is why: " << e.what() << "\n";
-    ASSERT(false);
-  }
-#endif
-  // for (auto& param : current_operation_->params_)
-  //  TEST
 
   if (stream_end) {
     if (current_operation_->request_->active()) {
@@ -175,24 +138,22 @@ Http::FilterDataStatus Filter::decodeData(Buffer::Instance& data, bool stream_en
 
   const auto* buffer = decoder_callbacks_->decodingBuffer();
 
-#if 0 // TODO: bring back checking max sie
   uint32_t total_length = data.length();
   if (buffer != nullptr) {
     total_length += buffer->length();
   }
 
-  if (total_length > req_validator->maxSize()) {
+  if (total_length > config_.maxSize()) {
     local_reply_ = true;
     decoder_callbacks_->sendLocalReply(
         Http::Code::PayloadTooLarge,
         fmt::format("Request validation failed. Payload exceeds {} bytes",
-                    req_validator->maxSize()),
+                    config_.maxSize()),
         nullptr, absl::nullopt, "");
     config_.stats()->requests_validation_failed_.inc();
     config_.stats()->requests_validation_failed_enforced_.inc();
     return Http::FilterDataStatus::StopIterationNoBuffer;
   }
-#endif
 
   if (!stream_end) {
     decoder_callbacks_->addDecodedData(data, false);
@@ -209,9 +170,12 @@ Http::FilterDataStatus Filter::decodeData(Buffer::Instance& data, bool stream_en
     decoder_callbacks_->addDecodedData(data, false);
   }
 
-#if 0 // TODO - bring back checking body
+  std::string body_to_validate;
+  body_to_validate.assign(std::string(
+      static_cast<char*>((const_cast<Buffer::Instance&>(*buffer)).linearize(buffer->length())),
+      buffer->length()));
   if (buffer->length() != 0) {
-    auto result = req_validator->validate(*buffer);
+    auto result = req_validator->validate(body_to_validate);
 
     if (!result.first) {
       local_reply_ = true;
@@ -224,7 +188,6 @@ Http::FilterDataStatus Filter::decodeData(Buffer::Instance& data, bool stream_en
       return Http::FilterDataStatus::StopIterationNoBuffer;
     }
   }
-#endif
 
   return Http::FilterDataStatus::Continue;
 }
@@ -314,9 +277,14 @@ Http::FilterDataStatus Filter::encodeData(Buffer::Instance& data, bool stream_en
   } else {
     encoder_callbacks_->addEncodedData(data, false);
   }
+
+  std::string body_to_validate;
+  body_to_validate.assign(std::string(
+      static_cast<char*>((const_cast<Buffer::Instance&>(*buffer)).linearize(buffer->length())),
+      buffer->length()));
+
   if (buffer->length() != 0) {
-#if 0 // TODO - bring back validating
-    auto result = response_validator_->validate(*buffer);
+    auto result = response_validator_->validate(body_to_validate);
 
     if (!result.first) {
       local_reply_ = true;
@@ -328,7 +296,6 @@ Http::FilterDataStatus Filter::encodeData(Buffer::Instance& data, bool stream_en
                                          nullptr, absl::nullopt, "");
       return Http::FilterDataStatus::StopIterationNoBuffer;
     }
-#endif
   }
 
 

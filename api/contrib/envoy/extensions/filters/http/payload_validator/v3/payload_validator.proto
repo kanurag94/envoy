@@ -44,8 +44,7 @@ message TransactionDescription {
        config.core.v3.RequestMethod method = 1 [(validate.rules).enum = {defined_only: true}];
        repeated Parameter parameters = 2;
        PayloadDescription request_body = 3;
-       google.protobuf.UInt32Value request_max_size = 4;
-       repeated ResponseDescription responses = 5;
+       repeated ResponseDescription responses = 4;
 }
 
 message PathTransactions {
@@ -57,5 +56,6 @@ message PathTransactions {
 // Payload Validator filter config.
 message PayloadValidator {
   string stat_prefix = 1 [(validate.rules).string = {min_len: 1}];
-  repeated PathTransactions paths = 2 [(validate.rules).repeated = {min_items: 1}];
+  google.protobuf.UInt32Value max_size = 2;
+  repeated PathTransactions paths = 3 [(validate.rules).repeated = {min_items: 1}];
 }

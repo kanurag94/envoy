@@ -98,7 +98,8 @@ class FilterConfig {
 public:
   FilterConfig(const std::string& stats_prefix, Stats::Scope& scope)
       : scope_(scope),
-        stats_(std::make_shared<PayloadValidatorStats>(generateStats(stats_prefix, scope_))) {}
+        stats_(std::make_shared<PayloadValidatorStats>(generateStats(stats_prefix, scope_))),
+        max_size_(2*1024*1024 /* default max size is 2MB */) {}
   json_validator& getValidator() { return validator_; }
 
 std::pair<bool, absl::optional<std::string>>
@@ -115,6 +116,8 @@ std::pair<bool, absl::optional<std::string>>
 
   const std::vector<Path>& getPaths() const {return paths_;}
 
+  uint32_t maxSize() const { return max_size_; }
+
   Stats::Scope& scope_;
   std::shared_ptr<PayloadValidatorStats> stats_;
   std::string stat_prefix_;
@@ -122,10 +125,10 @@ std::pair<bool, absl::optional<std::string>>
 public:
   // TODO: this cannot be public.
   json_validator validator_;
-  //std::pair<PathTemplate, absl::flat_hash_map<std::string, std::shared_ptr<Operation>>> operations_;
   // Allowed paths and operations.
   std::vector<Path> paths_;
   std::shared_ptr<Operation> empty_{};
+  uint32_t max_size_;
 };
 
 class FilterConfigFactory

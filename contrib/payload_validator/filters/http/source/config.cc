@@ -125,12 +125,6 @@ std::pair<bool, absl::optional<std::string>> FilterConfig::processConfig(
 
     auto request_validator = std::make_unique<JSONBodyValidator>();
 
-#if 0 // TODO: bring back setting max size
-    if (operation.has_request_max_size()) {
-      request_validator->setMaxSize(operation.request_max_size().value());
-    }
-#endif
-
     if (!operation.request_body().schema().empty()) {
 
       if (!request_validator->initialize(operation.request_body().schema())) {
@@ -212,6 +206,11 @@ request_path));
   }
     paths_.push_back(std::move(new_path));
     }
+
+    if (config.has_max_size()) {
+      max_size_ = config.max_size().value();
+    }
+
 
       return std::make_pair<bool, absl::optional<std::string>>(
           true,
