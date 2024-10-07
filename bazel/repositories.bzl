@@ -310,6 +310,7 @@ def envoy_dependencies(skip_targets = []):
     _com_github_rules_proto_grpc()
     _com_github_unicode_org_icu()
     _com_github_intel_ipp_crypto_crypto_mb()
+    _com_github_intel_ipp_crypto_crypto_mb_fips()
     _com_github_intel_qatlib()
     _com_github_intel_qatzip()
     _com_github_qat_zstd()
@@ -548,6 +549,19 @@ def _com_github_intel_ipp_crypto_crypto_mb():
     external_http_archive(
         name = "com_github_intel_ipp_crypto_crypto_mb",
         build_file_content = BUILD_ALL_CONTENT,
+    )
+
+def _com_github_intel_ipp_crypto_crypto_mb_fips():
+    # Temporary fix for building ipp-crypto when boringssl-fips is used.
+    # Build will fail if bn2lebinpad patch is applied. Remove this archive
+    # when upstream dependency fixes this issue.
+    external_http_archive(
+        name = "com_github_intel_ipp_crypto_crypto_mb_fips",
+        patches = ["@envoy//bazel/foreign_cc:ipp-crypto-bn2lebinpad.patch"],
+        patch_args = ["-p1"],
+        build_file_content = BUILD_ALL_CONTENT,
+        # Use existing ipp-crypto repository location name to avoid redefinition.
+        location_name = "com_github_intel_ipp_crypto_crypto_mb",
     )
 
 def _com_github_intel_qatlib():
@@ -810,10 +824,19 @@ def _com_github_nlohmann_json():
 def _com_github_pboettch_json_schema_validator():
     external_http_archive(
         name = "com_github_pboettch_json_schema_validator",
+        build_file_content = """
+cc_library(
+    name = "json_schema_validator",
+    srcs = glob(["src/*.cpp"]),
+    hdrs = glob(["src/*.hpp", "src/*.h", "src/nlohmann/*.hpp"]),
+    includes = ["src"],
+    deps = ["@com_github_nlohmann_json//:json"],
+    visibility = ["//visibility:public"],
+)""",
     )
     native.bind(
         name = "json_schema_validator",
-        actual = "@com_github_pboettch_json_schema_validator//:schema_validator",
+        actual = "@com_github_pboettch_json_schema_validator//:json_schema_validator",
     )
 
 def _com_github_nodejs_http_parser():
@@ -1114,6 +1137,11 @@ def _com_github_google_quiche():
     external_http_archive(
         name = "com_github_google_quiche",
         patch_cmds = ["find quiche/ -type f -name \"*.bazel\" -delete"],
+        patches = [
+            "@envoy//bazel/external:quiche_sequencer_fix.patch",
+            "@envoy//bazel/external:quiche_stream_fix.patch",
+        ],
+        patch_args = ["-p1"],
         build_file = "@envoy//bazel/external:quiche.BUILD",
     )
     native.bind(
@@ -1474,7 +1502,13 @@ def _rules_ruby():
     external_http_archive("rules_ruby")
 
 def _foreign_cc_dependencies():
-    external_http_archive("rules_foreign_cc")
+    external_http_archive(
+        name = "rules_foreign_cc",
+        # This patch is needed to fix build on macos with xcode 15.3.
+        # remove this when https://github.com/bazelbuild/rules_foreign_cc/issues/1186 fixed.
+        patch_args = ["-p1"],
+        patches = ["@envoy//bazel:rules_foreign_cc.patch"],
+    )
 
 def _com_github_maxmind_libmaxminddb():
     external_http_archive(
