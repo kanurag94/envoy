@@ -20,11 +20,11 @@ name: envoy.filters.http.payload_validator
 typed_config:
   "@type": type.googleapis.com/envoy.extensions.filters.http.payload_validator.v3.PayloadValidator
   stat_prefix: test_p_v
+  max_size: 25
   paths:
-  - path: "/"
+  - path: "/test"
     operations:
     - method: POST  
-      request_max_size: 25
       request_body:
         schema: |
           {
@@ -44,7 +44,6 @@ typed_config:
           }
     - method: DELETE
     - method: PUT
-      request_max_size: 0
 )EOF";
     config_helper_.prependFilter(filter_config);
     initialize();
@@ -112,10 +111,11 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_tuple("POST", true, "413", "{\"foo\":\"abcdefghijklmnop\"}"),
         // DELETE is allowed but body is not validated. With or without body it should not be
         // stopped.
-        std::make_tuple("DELETE", true, "200", "{\"foo\":\"abcdefghijklmnop\"}"),
+        std::make_tuple("DELETE", true, "200", "{\"foo\":\"klmnop\"}"),
         std::make_tuple("DELETE", false, "200", ""),
-        // PUT's body must not be present. Max allowed body length is zero.
-        std::make_tuple("PUT", true, "413", "{\"foo\":\"abcdefghijklmnop\"}"),
+        // PUT is allowed but body is not validated. With or without body it should not be
+        // stopped.
+        std::make_tuple("PUT", true, "200", "{\"foo\":\"klmnop\"}"),
         std::make_tuple("PUT", false, "200", ""),
         // GET is not allowed.
         std::make_tuple("GET", false, "405", "")));
@@ -135,7 +135,7 @@ typed_config:
   "@type": type.googleapis.com/envoy.extensions.filters.http.payload_validator.v3.PayloadValidator
   stat_prefix: test_p_v
   paths:
-  - path: "/"
+  - path: "/test"
     operations:
     - method: GET  
       responses:
@@ -158,7 +158,6 @@ typed_config:
             }
     - method: DELETE
     - method: PUT
-      request_max_size: 0
 )EOF";
     config_helper_.prependFilter(filter_config);
     initialize();

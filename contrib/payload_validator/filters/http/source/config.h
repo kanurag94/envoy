@@ -22,6 +22,7 @@ namespace Extensions {
 namespace HttpFilters {
 namespace PayloadValidator {
 
+#if 0 // This should be deleted
 class PayloadDescription {
 public:
   PayloadDescription(const std::string type) : type_(type), max_size_(1024 * 1024) {}
@@ -52,15 +53,16 @@ public:
 private:
   json_validator validator_;
 };
+#endif // to be deleted
 
 struct Operation {
 public:
-  const std::unique_ptr<PayloadDescription>& getRequestValidator() const { return request_; }
-  const std::shared_ptr<PayloadDescription> getResponseValidator(uint32_t code) const;
+  const std::unique_ptr<JSONBodyValidator>& getRequestValidator() const { return request_; }
+  const std::shared_ptr<JSONBodyValidator> getResponseValidator(uint32_t code) const;
 
-  absl::flat_hash_map<std::string, std::unique_ptr<ParamValidator>> params_;
-  std::unique_ptr<PayloadDescription> request_;
-  absl::flat_hash_map</*code*/ uint32_t, std::shared_ptr<PayloadDescription>> responses_;
+  absl::flat_hash_map<std::string, std::unique_ptr<QueryParamValidator>> params_;
+  std::unique_ptr<JSONBodyValidator> request_;
+  absl::flat_hash_map</*code*/ uint32_t, std::shared_ptr<JSONBodyValidator>> responses_;
 
 private:
 };
@@ -96,7 +98,8 @@ class FilterConfig {
 public:
   FilterConfig(const std::string& stats_prefix, Stats::Scope& scope)
       : scope_(scope),
-        stats_(std::make_shared<PayloadValidatorStats>(generateStats(stats_prefix, scope_))) {}
+        stats_(std::make_shared<PayloadValidatorStats>(generateStats(stats_prefix, scope_))),
+        max_size_(2*1024*1024 /* default max size is 2MB */) {}
   json_validator& getValidator() { return validator_; }
 
 std::pair<bool, absl::optional<std::string>>
@@ -113,6 +116,8 @@ std::pair<bool, absl::optional<std::string>>
 
   const std::vector<Path>& getPaths() const {return paths_;}
 
+  uint32_t maxSize() const { return max_size_; }
+
   Stats::Scope& scope_;
   std::shared_ptr<PayloadValidatorStats> stats_;
   std::string stat_prefix_;
@@ -120,10 +125,10 @@ std::pair<bool, absl::optional<std::string>>
 public:
   // TODO: this cannot be public.
   json_validator validator_;
-  //std::pair<PathTemplate, absl::flat_hash_map<std::string, std::shared_ptr<Operation>>> operations_;
   // Allowed paths and operations.
   std::vector<Path> paths_;
   std::shared_ptr<Operation> empty_{};
+  uint32_t max_size_;
 };
 
 class FilterConfigFactory

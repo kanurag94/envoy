@@ -69,6 +69,9 @@ TEST(PayloadValidatorConfigTests, RequestOnlyConfig) {
   // For DELETE, nothing was defined, so entire operation's context should not be found.
   auto& operation2 = path.getOperation("DELETE");
   ASSERT_TRUE(operation2 == nullptr);
+
+  // Default value for maximum size of payload should be 2MB.
+  ASSERT_THAT(filter_config.maxSize(), 2 * 1024 * 1024);
 }
 
 TEST(PayloadValidatorConfigTests, RequestAndResponseConfig) {
@@ -127,6 +130,7 @@ TEST(PayloadValidatorConfigTests, RequestAndResponseConfig) {
                 ],
                 "type": "object"
             }
+  max_size: 100
   )EOF";
 
   envoy::extensions::filters::http::payload_validator::v3::PayloadValidator config;
@@ -157,6 +161,8 @@ TEST(PayloadValidatorConfigTests, RequestAndResponseConfig) {
 
   // There should be no validator for code 205.
   ASSERT_TRUE(operation->getResponseValidator(205) == nullptr);
+
+  ASSERT_THAT(filter_config.maxSize(), 100);
 }
 
 // Test verifies that configuration with parameters
