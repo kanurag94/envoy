@@ -181,6 +181,7 @@ def envoy_dependencies(skip_targets = []):
     _com_github_skyapm_cpp2sky()
     _com_github_alibaba_hessian2_codec()
     _com_github_nlohmann_json()
+    _com_github_pboettch_json_schema_validator()
     _com_github_ncopa_suexec()
     _com_google_absl()
     _com_google_googletest()
@@ -606,6 +607,24 @@ def _com_github_skyapm_cpp2sky():
 def _com_github_nlohmann_json():
     external_http_archive(
         name = "com_github_nlohmann_json",
+    )
+
+def _com_github_pboettch_json_schema_validator():
+    external_http_archive(
+        name = "com_github_pboettch_json_schema_validator",
+        build_file_content = """
+cc_library(
+    name = "json_schema_validator",
+    srcs = glob(["src/*.cpp"]),
+    hdrs = glob(["src/*.hpp", "src/*.h", "src/nlohmann/*.hpp"]),
+    includes = ["src"],
+    deps = ["@com_github_nlohmann_json//:json"],
+    visibility = ["//visibility:public"],
+)""",
+    )
+    native.bind(
+        name = "json_schema_validator",
+        actual = "@com_github_pboettch_json_schema_validator//:json_schema_validator",
     )
 
 def _com_github_alibaba_hessian2_codec():
