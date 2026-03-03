@@ -59,6 +59,9 @@ private:
 };
 using UpstreamDynamicModuleConfigFactory = DynamicModuleConfigFactory;
 
+// Clears the in-memory module cache. Only for use in tests.
+void clearModuleCacheForTest();
+
 } // namespace Configuration
 } // namespace Server
 } // namespace Envoy
