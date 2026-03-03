@@ -14,6 +14,18 @@ option (udpa.annotations.file_status).package_version_status = ACTIVE;
 
 // [#protodoc-title: Dynamic Modules Common Configuration]
 
+// Policy for handling module load failures in warming mode.
+enum FailurePolicy {
+  // No policy is specified. The default policy will be used. The default policy is ``FAIL_CLOSED``.
+  UNSPECIFIED = 0;
+
+  // Reject all requests with HTTP 503 Service Unavailable.
+  FAIL_CLOSED = 1;
+
+  // Skip the filter and allow traffic to flow without it.
+  FAIL_OPEN = 2;
+}
+
 // Configuration of a dynamic module. A dynamic module is a shared object file that can be loaded via
 // ``dlopen`` by various Envoy extension points.
 //
@@ -31,7 +43,7 @@ option (udpa.annotations.file_status).package_version_status = ACTIVE;
 // the ABI is stabilized, this restriction will be revisited. Until then, Envoy checks the hash of
 // the ABI header files to ensure that the dynamic modules are built against the same version of the
 // ABI.
-// [#next-free-field: 7]
+// [#next-free-field: 9]
 message DynamicModuleConfig {
   // The name of the dynamic module.
   //
@@ -92,4 +104,25 @@ message DynamicModuleConfig {
   //
   // When both ``name`` and ``module`` are set, ``module`` takes precedence.
   config.core.v3.AsyncDataSource module = 6;
+
+  // If true and the module needs to be remotely fetched and is not in the in-memory cache,
+  // NACK the configuration update and do a background fetch to fill the cache.
+  // On the next configuration push (control plane retry), the cached module bytes are used.
+  // This preserves the old working listener during the fetch.
+  //
+  // When false (default), the server uses warming mode: it blocks initialization via
+  // RemoteAsyncDataProvider until the fetch completes. If the fetch fails, behavior is
+  // controlled by ``failure_policy``.
+  //
+  // This only applies when using remote data sources via the ``module`` field.
+  bool nack_on_module_cache_miss = 7;
+
+  // Controls behavior when a remote module fails to load in warming mode
+  // (i.e. when ``nack_on_module_cache_miss`` is false).
+  //
+  // This field is ignored when ``nack_on_module_cache_miss`` is true, because
+  // in NACK mode the config is rejected and the old listener stays active.
+  //
+  // Defaults to FAIL_CLOSED (503 for all requests).
+  FailurePolicy failure_policy = 8;
 }

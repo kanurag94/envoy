@@ -1,15 +1,66 @@
 #include "source/extensions/filters/http/dynamic_modules/factory.h"
 
+#include <functional>
+#include <mutex>
+
+#include "source/common/common/macros.h"
 #include "source/common/config/datasource.h"
+#include "source/common/config/remote_data_fetcher.h"
 #include "source/common/runtime/runtime_features.h"
 #include "source/extensions/filters/http/dynamic_modules/filter.h"
 #include "source/extensions/filters/http/dynamic_modules/filter_config.h"
+
+#include "absl/container/flat_hash_map.h"
 
 namespace Envoy {
 namespace Server {
 namespace Configuration {
 
 namespace {
+
+// Minimal in-memory cache for remotely fetched module bytes, keyed by SHA256.
+// SHA256-addressed content is immutable, so no TTL is needed.
+// Failed fetches leave `code` empty; the next config push retries.
+struct ModuleCacheEntry {
+  std::string code;
+  bool in_progress{false};
+};
+
+std::mutex& moduleCacheMutex() { MUTABLE_CONSTRUCT_ON_FIRST_USE(std::mutex); }
+
+absl::flat_hash_map<std::string, ModuleCacheEntry>& moduleCache() {
+  MUTABLE_CONSTRUCT_ON_FIRST_USE(absl::flat_hash_map<std::string, ModuleCacheEntry>);
+}
+
+// A simple decoder filter that rejects all requests with 503 Service Unavailable.
+// Used in fail-closed mode when a remote module fails to load.
+class FailClosedDecoderFilter : public Http::PassThroughDecoderFilter {
+public:
+  Http::FilterHeadersStatus decodeHeaders(Http::RequestHeaderMap&, bool) override {
+    decoder_callbacks_->sendLocalReply(Http::Code::ServiceUnavailable,
+                                       "Dynamic module not available", nullptr, absl::nullopt,
+                                       "dynamic_module_not_loaded");
+    return Http::FilterHeadersStatus::StopIteration;
+  }
+};
+
+// Bridges RemoteDataFetcherCallback to a lambda for background fetches.
+// Extends DeferredDeletable for safe async cleanup via dispatcher.deferredDelete().
+class RemoteDataFetcherAdapter : public Config::DataFetcher::RemoteDataFetcherCallback,
+                                 public Event::DeferredDeletable {
+public:
+  RemoteDataFetcherAdapter(std::function<void(const std::string&)> cb) : cb_(std::move(cb)) {}
+  ~RemoteDataFetcherAdapter() override = default;
+  void onSuccess(const std::string& data) override { cb_(data); }
+  void onFailure(Config::DataFetcher::FailureReason) override { cb_(""); }
+  void setFetcher(std::unique_ptr<Config::DataFetcher::RemoteDataFetcher>&& fetcher) {
+    fetcher_ = std::move(fetcher);
+  }
+
+private:
+  std::function<void(const std::string&)> cb_;
+  std::unique_ptr<Config::DataFetcher::RemoteDataFetcher> fetcher_;
+};
 
 absl::StatusOr<
     Envoy::Extensions::DynamicModules::HttpFilters::DynamicModuleHttpFilterConfigSharedPtr>
@@ -70,6 +121,11 @@ Http::FilterFactoryCb createFilterFactoryCallback(
 }
 
 } // namespace
+
+void clearModuleCacheForTest() {
+  std::lock_guard<std::mutex> lock(moduleCacheMutex());
+  moduleCache().clear();
+}
 
 absl::StatusOr<Http::FilterFactoryCb> DynamicModuleConfigFactory::createFilterFactory(
     const FilterConfig& proto_config, const std::string&,
@@ -180,12 +236,86 @@ DynamicModuleConfigFactory::createFilterFactoryFromAsyncDataSource(
       return absl::InvalidArgumentError("SHA256 hash is required for remote module sources");
     }
 
+    // NACK-on-cache-miss path: check cache, NACK if miss, background fetch to fill cache.
+    if (module_config.nack_on_module_cache_miss()) {
+      // Check the cache under the lock, but copy bytes out before releasing so we don't
+      // hold the mutex during the expensive createFilterConfigFromBytes (which calls dlopen).
+      std::string cached_code;
+      bool need_fetch = false;
+      {
+        std::lock_guard<std::mutex> lock(moduleCacheMutex());
+        auto& cache = moduleCache();
+        auto it = cache.find(sha256_hash);
+
+        if (it != cache.end() && !it->second.code.empty()) {
+          // Cache hit — copy bytes out so we can release the lock before loading.
+          cached_code = it->second.code;
+        } else {
+          // Cache miss — start background fetch if not already in progress.
+          auto& entry = cache[sha256_hash];
+          if (!entry.in_progress) {
+            entry.in_progress = true;
+            need_fetch = true;
+          }
+        }
+      } // mutex released
+
+      if (!cached_code.empty()) {
+        // Cache hit — load synchronously (no mutex held).
+        auto filter_config = createFilterConfigFromBytes(cached_code, sha256_hash,
+                                                         proto_config, context, scope);
+        if (!filter_config.ok()) {
+          return filter_config.status();
+        }
+        if (Runtime::runtimeFeatureEnabled(
+                "envoy.reloadable_features.dynamic_modules_strip_custom_stat_prefix")) {
+          context.api().customStatNamespaces().registerStatNamespace(metrics_namespace);
+        }
+        return createFilterFactoryCallback(filter_config.value());
+      }
+
+      if (need_fetch) {
+        // Holder pattern (same as Wasm): shared_ptr<unique_ptr<DeferredDeletable>> keeps
+        // the adapter alive during the async fetch; deferredDelete cleans up safely.
+        auto holder = std::make_shared<std::unique_ptr<Event::DeferredDeletable>>();
+        auto& dispatcher = context.mainThreadDispatcher();
+
+        auto adapter = std::make_unique<RemoteDataFetcherAdapter>(
+            [sha256 = sha256_hash, holder, &dispatcher](const std::string& data) {
+              {
+                std::lock_guard<std::mutex> lock(moduleCacheMutex());
+                auto& e = moduleCache()[sha256];
+                e.in_progress = false;
+                e.code = data;
+              }
+              if (*holder) {
+                dispatcher.deferredDelete(
+                    Event::DeferredDeletablePtr{holder->release()});
+              }
+            });
+
+        auto fetcher = std::make_unique<Config::DataFetcher::RemoteDataFetcher>(
+            context.clusterManager(), remote_source.http_uri(), sha256_hash, *adapter);
+        auto* fetcher_ptr = fetcher.get();
+        adapter->setFetcher(std::move(fetcher));
+        *holder = std::move(adapter);
+        fetcher_ptr->fetch();
+      }
+
+      ENVOY_LOG_MISC(info, "Dynamic module cache miss for SHA256 {}, NACKing config", sha256_hash);
+      return absl::UnavailableError(
+          "Dynamic module not in cache, background fetch started. "
+          "Config will be retried by control plane.");
+    }
+
     // Warming mode: block server init until the fetch completes. The init manager will
     // not transition to Initialized until the RemoteAsyncDataProvider signals ready().
     if (init_manager == nullptr) {
       return absl::InvalidArgumentError(
           "Init manager required for warming mode with remote module sources");
     }
+
+    const auto failure_policy = module_config.failure_policy();
 
     // AsyncLoadState is shared between the fetch callback (which populates filter_config)
     // and the returned factory callback (which reads it). Also prevents the
@@ -228,11 +358,20 @@ DynamicModuleConfigFactory::createFilterFactoryFromAsyncDataSource(
           }
         });
 
-    // If the fetch failed, filter_config will be null and we skip (fail-open).
-    return [state](Http::FilterChainFactoryCallbacks& callbacks) -> void {
+    // Factory callback that handles both fail-open and fail-closed policies.
+    return [state, failure_policy](Http::FilterChainFactoryCallbacks& callbacks) -> void {
       if (!state->filter_config) {
+        using FailurePolicy =
+            envoy::extensions::dynamic_modules::v3::FailurePolicy;
+        if (failure_policy == FailurePolicy::FAIL_OPEN) {
+          ENVOY_LOG_MISC(warn,
+                         "Dynamic module filter skipped: remote module was not loaded (fail-open)");
+          return;
+        }
+        // Default (UNSPECIFIED/FAIL_CLOSED): send 503 for all requests.
         ENVOY_LOG_MISC(warn,
-                       "Dynamic module filter skipped: remote module was not loaded (fail-open)");
+                       "Dynamic module not loaded, sending 503 (fail-closed)");
+        callbacks.addStreamDecoderFilter(std::make_shared<FailClosedDecoderFilter>());
         return;
       }
       createFilterFactoryCallback(state->filter_config)(callbacks);
