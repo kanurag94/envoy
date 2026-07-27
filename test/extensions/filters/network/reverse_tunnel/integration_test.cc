@@ -15,6 +15,8 @@
 #include "test/test_common/logging.h"
 #include "test/test_common/utility.h"
 
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
 using testing::Eq;
@@ -1742,6 +1744,123 @@ cluster_type:
 
   client_a1->close();
   client_b1->close();
+}
+
+// ---------------------------------------------------------------------------
+// Inline JWT handshake authentication (jwt_validation), end to end.
+// ---------------------------------------------------------------------------
+
+// Single-key RS256 JWKS (jwt_authn's test key) on one line so it can be embedded as a YAML
+// single-quoted scalar, plus a matching pre-signed token (iss=https://example.com, exp in 2033).
+constexpr absl::string_view kJwtIssuer = "https://example.com";
+constexpr absl::string_view kJwtJwks =
+    R"({"keys":[{"kty":"RSA","alg":"RS256","use":"sig","kid":"62a93512c9ee4c7f8067b5a216dade2763d32a47","n":"up97uqrF9MWOPaPkwSaBeuAPLOr9FKcaWGdVEGzQ4f3Zq5WKVZowx9TCBxmImNJ1qmUi13pB8otwM_l5lfY1AFBMxVbQCUXntLovhDaiSvYp4wGDjFzQiYA-pUq8h6MUZBnhleYrkU7XlCBwNVyN8qNMkpLA7KFZYz-486GnV2NIJJx_4BGa3HdKwQGxi2tjuQsQvao5W4xmSVaaEWopBwMy2QmlhSFQuPUpTaywTqUcUq_6SfAHhZ4IDa_FxEd2c2z8gFGtfst9cY3lRYf-c_ZdboY3mqN9Su3-j3z5r2SHWlhB_LNAjyWlBGsvbGPlTqDziYQwZN4aGsqVKQb9Vw","e":"AQAB"}]})";
+constexpr absl::string_view kJwtGoodToken =
+    "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2V4YW1wbGUu"
+    "Y29tIiwic3ViIjoidGVzdEBleGFtcGxlLmNvbSIsImV4cCI6MjAwMTAwMTAwMSwiY"
+    "XVkIjoiZXhhbXBsZV9zZXJ2aWNlIn0.cuui_Syud76B0tqvjESE8IZbX7vzG6xA-M"
+    "Daof1qEFNIoCFT_YQPkseLSUSR2Od3TJcNKk-dKjvUEL1JW3kGnyC1dBx4f3-Xxro"
+    "yL23UbR2eS8TuxO9ZcNCGkjfvH5O4mDb6cVkFHRDEolGhA7XwNiuVgkGJ5Wkrvshi"
+    "h6nqKXcPNaRx9lOaRWg2PkE6ySNoyju7rNfunXYtVxPuUIkl0KMq3WXWRb_cb8a_Z"
+    "EprqSZUzi_ZzzYzqBNVhIJujcNWij7JRra2sXXiSAfKjtxHQoxrX8n4V1ySWJ3_1T"
+    "H_cJcdfS_RKP7YgXRWC0L16PNF5K7iqRqmjKALNe83ZFnFIw";
+
+std::string makeJwtHandshakeRequest(absl::string_view authorization) {
+  std::string req = "GET /reverse_connections/request HTTP/1.1\r\n";
+  req += "Host: localhost\r\n";
+  req += "x-envoy-reverse-tunnel-node-id: n\r\n";
+  req += "x-envoy-reverse-tunnel-cluster-id: c\r\n";
+  req += "x-envoy-reverse-tunnel-tenant-id: t\r\n";
+  if (!authorization.empty()) {
+    req += "authorization: " + std::string(authorization) + "\r\n";
+  }
+  req += "Content-Length: 0\r\n\r\n";
+  return req;
+}
+
+// A valid token verified against an inline JWKS completes the handshake (200).
+TEST_P(ReverseTunnelFilterIntegrationTest, JwtLocalJwksValidTokenAccepted) {
+  const std::string jwt_config = fmt::format(R"(
+          jwt_validation:
+            issuer: "{}"
+            local_jwks:
+              inline_string: '{}')",
+                                             kJwtIssuer, kJwtJwks);
+  addReverseTunnelFilter(false, "/reverse_connections/request", "GET", jwt_config);
+  initialize();
+
+  const std::string request = makeJwtHandshakeRequest(absl::StrCat("Bearer ", kJwtGoodToken));
+  IntegrationTcpClientPtr tcp_client = makeTcpConnection(lookupPort("listener_0"));
+  if (!tcp_client->write(request)) {
+    tcp_client->waitForData("HTTP/1.1 200 OK");
+    return;
+  }
+  tcp_client->waitForData("HTTP/1.1 200 OK");
+  tcp_client->close();
+}
+
+// A missing token is rejected with 401 before the socket is registered.
+TEST_P(ReverseTunnelFilterIntegrationTest, JwtLocalJwksMissingTokenRejected) {
+  const std::string jwt_config = fmt::format(R"(
+          jwt_validation:
+            issuer: "{}"
+            local_jwks:
+              inline_string: '{}')",
+                                             kJwtIssuer, kJwtJwks);
+  addReverseTunnelFilter(false, "/reverse_connections/request", "GET", jwt_config);
+  initialize();
+
+  const std::string request = makeJwtHandshakeRequest(/*authorization=*/"");
+  IntegrationTcpClientPtr tcp_client = makeTcpConnection(lookupPort("listener_0"));
+  if (!tcp_client->write(request)) {
+    tcp_client->waitForData("HTTP/1.1 401 Unauthorized");
+    return;
+  }
+  tcp_client->waitForData("HTTP/1.1 401 Unauthorized");
+  tcp_client->close();
+}
+
+// SECURITY-CRITICAL, end to end: with remote_jwks pointing at an unreachable cluster the JWKS is
+// never fetched, so even a valid token is rejected (fail-closed) and the socket is not registered.
+// fast_listener keeps listener activation from blocking on the doomed fetch.
+TEST_P(ReverseTunnelFilterIntegrationTest, JwtRemoteJwksUnavailableRejectsValidToken) {
+  config_helper_.addConfigModifier([](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* cluster = bootstrap.mutable_static_resources()->add_clusters();
+    cluster->set_name("jwks_cluster");
+    cluster->set_type(envoy::config::cluster::v3::Cluster::STATIC);
+    cluster->mutable_connect_timeout()->set_seconds(1);
+    auto* la = cluster->mutable_load_assignment();
+    la->set_cluster_name("jwks_cluster");
+    auto* addr = la->add_endpoints()
+                     ->add_lb_endpoints()
+                     ->mutable_endpoint()
+                     ->mutable_address()
+                     ->mutable_socket_address();
+    addr->set_address("127.0.0.1");
+    addr->set_port_value(1);
+  });
+  const std::string jwt_config = fmt::format(R"(
+          jwt_validation:
+            issuer: "{}"
+            remote_jwks:
+              http_uri:
+                uri: "https://jwks.example.com/keys"
+                cluster: "jwks_cluster"
+                timeout: 1s
+              async_fetch:
+                fast_listener: true)",
+                                             kJwtIssuer);
+  addReverseTunnelFilter(false, "/reverse_connections/request", "GET", jwt_config);
+  initialize();
+
+  const std::string request = makeJwtHandshakeRequest(absl::StrCat("Bearer ", kJwtGoodToken));
+  IntegrationTcpClientPtr tcp_client = makeTcpConnection(lookupPort("listener_0"));
+  if (!tcp_client->write(request)) {
+    tcp_client->waitForData("HTTP/1.1 401 Unauthorized");
+    return;
+  }
+  tcp_client->waitForData("HTTP/1.1 401 Unauthorized");
+  tcp_client->close();
 }
 
 } // namespace

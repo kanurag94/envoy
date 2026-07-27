@@ -32,10 +32,12 @@ envoy_extension_cc_test(
     extension_names = ["envoy.filters.network.reverse_tunnel"],
     rbe_pool = "6gig",
     deps = [
+        "//source/common/jwt:jwt_lib",
         "//source/common/stats:isolated_store_lib",
         "//source/common/stream_info:uint64_accessor_lib",
         "//source/extensions/bootstrap/reverse_tunnel/upstream_socket_interface:reverse_tunnel_acceptor_lib",
         "//source/extensions/bootstrap/reverse_tunnel/upstream_socket_interface:upstream_socket_manager_lib",
+        "//source/extensions/filters/http/common:jwks_fetcher_lib",
         "//source/extensions/filters/network/reverse_tunnel:reverse_tunnel_filter_lib",
         "//test/common/tls:mock_ssl_handshaker_lib",
         "//test/mocks/event:event_mocks",
@@ -49,6 +51,7 @@ envoy_extension_cc_test(
         "//test/test_common:status_utility_lib",
         "@envoy_api//envoy/config/core/v3:pkg_cc_proto",
         "@envoy_api//envoy/extensions/bootstrap/reverse_tunnel/upstream_socket_interface/v3:pkg_cc_proto",
+        "@envoy_api//envoy/extensions/filters/http/jwt_authn/v3:pkg_cc_proto",
         "@envoy_api//envoy/extensions/filters/network/reverse_tunnel/v3:pkg_cc_proto",
     ],
 )

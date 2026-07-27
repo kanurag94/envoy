@@ -6,5 +6,5 @@ inline ``local_jwks`` before the connection is accepted and its socket registere
 expired token cannot establish a usable reverse tunnel. A ``jwt_validation`` block requires an
 ``issuer``, and tokens without an ``exp`` claim are rejected. Verified claims are published as dynamic
 metadata so the existing ``validation`` block can bind a claimed identifier to a verified claim via
-``%DYNAMIC_METADATA(namespace:claim)%``. Only inline JWKS (synchronous verification) is supported;
-remote JWKS fetching is not yet implemented.
+``%DYNAMIC_METADATA(namespace:claim)%``. The JWKS may be supplied inline via ``local_jwks`` or
+fetched from a remote server via ``remote_jwks``.
