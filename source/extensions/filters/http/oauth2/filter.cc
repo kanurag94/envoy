@@ -177,6 +177,15 @@ std::optional<size_t> tokenCookieDataSize(absl::string_view key, absl::string_vi
   return max_cookie_size - chunk_overhead;
 }
 
+// True when the value must be split: chunking is on and a single cookie would exceed the limit.
+bool tokenCookieNeedsChunking(absl::string_view key, absl::string_view data,
+                              absl::string_view cookie_tail, size_t max_cookie_size) {
+  if (!oauth2ChunkLargeTokenCookiesEnabled()) {
+    return false;
+  }
+  return key.size() + 1 /* "=" */ + data.size() + cookie_tail.size() > max_cookie_size;
+}
+
 bool tokenCookieFits(absl::string_view key, absl::string_view data, absl::string_view cookie_tail,
                      size_t max_cookie_size) {
   if (!oauth2ChunkLargeTokenCookiesEnabled()) {
@@ -1293,9 +1302,19 @@ void OAuth2Filter::decryptAndUpdateOAuthTokenCookies(Http::RequestHeaderMap& hea
       continue;
     }
 
+    const bool has_count_cookie =
+        cookies.contains(absl::StrCat(*cookie_name, TokenCookieChunksSuffix));
     auto [token, chunk_count] = findTokenCookieValueAndCount(cookies, *cookie_name);
     if (chunk_count.has_value()) {
       token_cookie_chunk_counts_.insert_or_assign(*cookie_name, chunk_count.value());
+      // An empty value with a usable count means a chunk was missing.
+      if (token.empty()) {
+        config_->stats().oauth_token_cookie_malformed_chunks_.inc();
+      } else {
+        config_->stats().oauth_token_cookie_reassembled_.inc();
+      }
+    } else if (has_count_cookie) {
+      config_->stats().oauth_token_cookie_malformed_chunks_.inc();
     }
     eraseTokenCookies(cookies, *cookie_name);
     if (!token.empty()) {
@@ -1507,8 +1526,11 @@ void OAuth2Filter::setTokenCookie(Http::ResponseHeaderMap& headers, const std::s
 
   const std::optional<size_t> max_allowed_data_size =
       tokenCookieDataSize(key, cookie_tail, max_cookie_size);
-  if (!oauth2ChunkLargeTokenCookiesEnabled()) {
-    if (!max_allowed_data_size.has_value() || data.size() > max_allowed_data_size.value()) {
+
+  // A single cookie pays no chunk index suffix, so it fits at sizes a chunk would not. Anything
+  // that fits is written as it is today.
+  if (!tokenCookieNeedsChunking(key, data, cookie_tail, max_cookie_size)) {
+    if (key.size() + 1 + data.size() + cookie_tail.size() > max_cookie_size) {
       ENVOY_LOG_EVERY_POW_2(warn,
                             "token cookie {} exceeds the max allowed cookie size, but chunking is "
                             "disabled",
@@ -1519,11 +1541,6 @@ void OAuth2Filter::setTokenCookie(Http::ResponseHeaderMap& headers, const std::s
   }
 
   ASSERT(max_allowed_data_size.has_value());
-  if (data.size() <= max_allowed_data_size.value()) {
-    setCookie(headers, key, data, cookie_tail);
-    return;
-  }
-
   const size_t required_chunks =
       (data.size() + max_allowed_data_size.value() - 1) / max_allowed_data_size.value();
   ASSERT(required_chunks <= MaxChunksPerToken);
@@ -1531,6 +1548,7 @@ void OAuth2Filter::setTokenCookie(Http::ResponseHeaderMap& headers, const std::s
       setChunkedCookies(headers, key, data, cookie_tail, max_allowed_data_size.value());
   setCookie(headers, absl::StrCat(key, TokenCookieChunksSuffix), std::to_string(chunk_count),
             cookie_tail);
+  config_->stats().oauth_token_cookie_chunked_.inc();
   ENVOY_LOG(debug, "token cookie {} chunked into {} cookies", key, chunk_count);
 }
 
@@ -1865,6 +1883,7 @@ void OAuth2Filter::finishGetAccessTokenFlow() {
   // previous state and additionally set the OAuth cookies in browser.
   // The redirection should result in successfully passing this filter.
   if (!tokenCookiesFit()) {
+    config_->stats().oauth_token_cookie_oversized_.inc();
     sendSecretsNotReadyResponse("OAuth token exceeds the cookie chunk limit");
     return;
   }
@@ -1906,6 +1925,7 @@ void OAuth2Filter::finishRefreshAccessTokenFlow() {
   }
 
   if (!tokenCookiesFit()) {
+    config_->stats().oauth_token_cookie_oversized_.inc();
     sendSecretsNotReadyResponse("OAuth token exceeds the cookie chunk limit");
     return;
   }
@@ -1995,10 +2015,8 @@ void OAuth2Filter::setOAuthResponseCookies(Http::ResponseHeaderMap& headers,
     deleteRecordedTokenChunks(headers, cookie_names.bearer_token_,
                               config_->bearerTokenCookieSettings().path_, cookie_domain,
                               mayAddSecureAttributeForCookie(cookie_names.bearer_token_));
-    const std::optional<size_t> chunk_size =
-        tokenCookieDataSize(cookie_names.bearer_token_, cookie_tail, MaxCookieSize);
-    if (oauth2ChunkLargeTokenCookiesEnabled() && chunk_size.has_value() &&
-        encrypted_token.size() > chunk_size.value()) {
+    if (tokenCookieNeedsChunking(cookie_names.bearer_token_, encrypted_token, cookie_tail,
+                                 MaxCookieSize)) {
       setCookie(headers, cookie_names.bearer_token_, "deleted",
                 fmt::format("; path={}; expires=Thu, 01 Jan 1970 00:00:00 GMT{}{}",
                             config_->bearerTokenCookieSettings().path_, cookie_domain,
@@ -2018,10 +2036,8 @@ void OAuth2Filter::setOAuthResponseCookies(Http::ResponseHeaderMap& headers,
     deleteRecordedTokenChunks(headers, cookie_names.id_token_,
                               config_->idTokenCookieSettings().path_, cookie_domain,
                               mayAddSecureAttributeForCookie(cookie_names.id_token_));
-    const std::optional<size_t> chunk_size =
-        tokenCookieDataSize(cookie_names.id_token_, cookie_tail, MaxCookieSize);
-    if (oauth2ChunkLargeTokenCookiesEnabled() && chunk_size.has_value() &&
-        encrypted_token.size() > chunk_size.value()) {
+    if (tokenCookieNeedsChunking(cookie_names.id_token_, encrypted_token, cookie_tail,
+                                 MaxCookieSize)) {
       setCookie(headers, cookie_names.id_token_, "deleted",
                 fmt::format("; path={}; expires=Thu, 01 Jan 1970 00:00:00 GMT{}{}",
                             config_->idTokenCookieSettings().path_, cookie_domain,
@@ -2041,10 +2057,8 @@ void OAuth2Filter::setOAuthResponseCookies(Http::ResponseHeaderMap& headers,
     deleteRecordedTokenChunks(headers, cookie_names.refresh_token_,
                               config_->refreshTokenCookieSettings().path_, cookie_domain,
                               mayAddSecureAttributeForCookie(cookie_names.refresh_token_));
-    const std::optional<size_t> chunk_size =
-        tokenCookieDataSize(cookie_names.refresh_token_, cookie_tail, MaxCookieSize);
-    if (oauth2ChunkLargeTokenCookiesEnabled() && chunk_size.has_value() &&
-        encrypted_token.size() > chunk_size.value()) {
+    if (tokenCookieNeedsChunking(cookie_names.refresh_token_, encrypted_token, cookie_tail,
+                                 MaxCookieSize)) {
       setCookie(headers, cookie_names.refresh_token_, "deleted",
                 fmt::format("; path={}; expires=Thu, 01 Jan 1970 00:00:00 GMT{}{}",
                             config_->refreshTokenCookieSettings().path_, cookie_domain,

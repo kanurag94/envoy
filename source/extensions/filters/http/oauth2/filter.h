@@ -124,7 +124,11 @@ private:
   COUNTER(oauth_refreshtoken_success)                                                              \
   COUNTER(oauth_refreshtoken_failure)                                                              \
   COUNTER(oauth_allow_failed_passthrough)                                                          \
-  COUNTER(oauth_legacy_cbc_decrypt)
+  COUNTER(oauth_legacy_cbc_decrypt)                                                                \
+  COUNTER(oauth_token_cookie_chunked)                                                              \
+  COUNTER(oauth_token_cookie_reassembled)                                                          \
+  COUNTER(oauth_token_cookie_malformed_chunks)                                                     \
+  COUNTER(oauth_token_cookie_oversized)
 
 /**
  * Wrapper struct filter stats. @see stats_macros.h

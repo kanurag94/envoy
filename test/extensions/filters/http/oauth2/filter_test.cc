@@ -6723,6 +6723,88 @@ TEST_F(OAuth2Test, OAuthTestCustomCookiePaths) {
   }
 }
 
+// Enabling the guard must not change anything for a cookie that already fits. This pins the exact
+// boundary: at the size limit the output is identical either way, and only one byte past it does
+// chunking start. Encryption is off so the cookie value is the token itself and the maths is exact.
+TEST_F(OAuth2Test, TokenCookieAtSizeLimitIsNotChunked) {
+  constexpr auto DisabledSameSite = ::envoy::extensions::filters::http::oauth2::v3::
+      CookieConfig_SameSite::CookieConfig_SameSite_DISABLED;
+
+  auto emit = [&](bool chunking_enabled, const std::string& access_token) {
+    TestScopedRuntime scoped_runtime;
+    scoped_runtime.mergeValues({{"envoy.reloadable_features.oauth2_chunk_large_token_cookies",
+                                 chunking_enabled ? "true" : "false"}});
+    init(getConfig(true /* forward_bearer_token */, true /* use_refresh_token */,
+                   ::envoy::extensions::filters::http::oauth2::v3::OAuth2Config_AuthType::
+                       OAuth2Config_AuthType_URL_ENCODED_BODY,
+                   0, false, false, false, false, false, DisabledSameSite, DisabledSameSite,
+                   DisabledSameSite, DisabledSameSite, DisabledSameSite, DisabledSameSite,
+                   DisabledSameSite, 0, 0, true /* disable_token_encryption */));
+    test_time_.setSystemTime(SystemTime(std::chrono::seconds(1000)));
+
+    Http::TestRequestHeaderMapImpl request_headers{
+        {Http::Headers::get().Path.get(), "/original_path"},
+        {Http::Headers::get().Host.get(), "traffic.example.com"},
+        {Http::Headers::get().Method.get(), Http::Headers::get().MethodValues.Get},
+        {Http::Headers::get().Scheme.get(), "https"},
+    };
+    EXPECT_CALL(*validator_, setParams(_, _));
+    EXPECT_CALL(*validator_, isValid()).WillOnce(Return(true));
+    std::string legit_token{"legit_token"};
+    EXPECT_CALL(*validator_, token()).WillRepeatedly(ReturnRef(legit_token));
+    filter_->decodeHeaders(request_headers, false);
+
+    std::vector<std::string> cookies;
+    EXPECT_CALL(decoder_callbacks_, encodeHeaders_(_, true))
+        .WillOnce(Invoke([&cookies](Http::ResponseHeaderMap& headers, bool) {
+          headers.iterate([&cookies](const Http::HeaderEntry& header) -> Http::HeaderMap::Iterate {
+            if (header.key().getStringView() == Http::Headers::get().SetCookie.get()) {
+              cookies.push_back(std::string(header.value().getStringView()));
+            }
+            return Http::HeaderMap::Iterate::Continue;
+          });
+        }));
+    filter_->onGetAccessTokenSuccess(access_token, "", "", std::chrono::seconds(600));
+    return cookies;
+  };
+
+  auto bearer_cookie = [](const std::vector<std::string>& cookies) {
+    for (const auto& cookie : cookies) {
+      if (absl::StartsWith(cookie, "BearerToken=")) {
+        return cookie;
+      }
+    }
+    return std::string{};
+  };
+
+  // Measure everything the cookie carries besides the value.
+  const std::string probe = bearer_cookie(emit(false, "x"));
+  ASSERT_FALSE(probe.empty());
+  const size_t overhead = probe.size() - 1;
+  ASSERT_LT(overhead, MaxCookieSize);
+
+  // A token that fills the cookie exactly to the limit must be written the same way either way.
+  const std::string exact_fit(MaxCookieSize - overhead, 'a');
+  const std::vector<std::string> without_guard = emit(false, exact_fit);
+  const std::vector<std::string> with_guard = emit(true, exact_fit);
+  EXPECT_EQ(without_guard, with_guard);
+  EXPECT_EQ(bearer_cookie(with_guard).size(), MaxCookieSize);
+
+  // One byte past the limit is where chunking starts.
+  const std::string one_too_big(MaxCookieSize - overhead + 1, 'a');
+  const std::vector<std::string> over = emit(true, one_too_big);
+  // The base cookie is either absent or expired, never carrying the value.
+  const std::string over_base = bearer_cookie(over);
+  EXPECT_TRUE(over_base.empty() || absl::StartsWith(over_base, "BearerToken=deleted"));
+  bool has_chunk_count = false;
+  for (const auto& cookie : over) {
+    if (absl::StartsWith(cookie, "BearerToken_chunks=")) {
+      has_chunk_count = true;
+    }
+  }
+  EXPECT_TRUE(has_chunk_count);
+}
+
 TEST_F(OAuth2Test, SetTokenCookie) {
   TestScopedRuntime scoped_runtime;
   scoped_runtime.mergeValues(

@@ -108,6 +108,10 @@ RUNTIME_GUARD(envoy_reloadable_features_mobile_use_network_observer_registry);
 // drain sequence and notifies the connections of the covered listeners that a drain has begun,
 // instead of only stopping the listeners, and accepts `skip_exit` to drain without stopping them.
 RUNTIME_GUARD(envoy_reloadable_features_non_graceful_drain_notifies_connections);
+// Split OAuth2 token cookies too large for a browser to store. A cookie that already fits is
+// written exactly as before. Set false during a rolling upgrade, where a client may reach an
+// instance that cannot rejoin them.
+RUNTIME_GUARD(envoy_reloadable_features_oauth2_chunk_large_token_cookies);
 RUNTIME_GUARD(envoy_reloadable_features_oauth2_client_retries_respect_user_retry_on);
 // OAuth2 filter cookie decryption: when true (the default), decrypt() accepts legacy CBC
 // ciphertexts via the legacy AES-256-CBC fallback. When false, only "gcm."-prefixed ciphertexts
@@ -310,11 +314,6 @@ FALSE_RUNTIME_GUARD(envoy_reloadable_features_http2_record_histograms);
 // validated in production. When disabled, QUIC retains zlib-only compression while TCP TLS has
 // no certificate compression.
 FALSE_RUNTIME_GUARD(envoy_reloadable_features_tls_certificate_compression_brotli);
-
-// TODO: Flip to true after 1 release. This is default to false to allow users to upgrade
-// without mixing old and new behavior in a large deployment. Once all instances are upgraded,
-// this can be flipped to true to enable the new behavior.
-FALSE_RUNTIME_GUARD(envoy_reloadable_features_oauth2_chunk_large_token_cookies);
 
 // DnsFilter created resolver on the worker thread which could lead to race when sharing resolvers
 // Do not turn this on if DnsFilter is used or until the race is fixed
